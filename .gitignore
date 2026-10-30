@@ -1,0 +1,21 @@
+# Build output
+build/
+.gradle/
+.kotlin/
+/dist/
+
+# Machine-specific and secret
+local.properties
+keystore.properties
+*.jks
+*.keystore
+
+# Device diagnostics may contain network names and addresses
+scripts/out.txt
+nook-recon-*.txt
+
+# Editors and OS
+.idea/
+*.iml
+.vscode/
+.DS_Store

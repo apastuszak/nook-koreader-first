@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Stage 0 throwaway: can KOReader call another app's ContentProvider over JNI? -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.nookwifi.helperspike">
+
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+    <!-- No activity: the provider must work for an app that was never launched. -->
+    <application android:label="Wi-Fi Helper Spike">
+        <provider
+            android:name=".HelperProvider"
+            android:authorities="dev.nookwifi.helperspike"
+            android:exported="true" />
+    </application>
+</manifest>
