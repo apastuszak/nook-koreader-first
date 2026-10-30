@@ -25,7 +25,8 @@ import java.util.Set;
  * "protocol"; failures also carry an "error" code. call() never throws, so the
  * plugin sees a Java exception only when the helper is missing.
  *
- * Methods: ping, getState, setEnabled(arg "true"|"false"). See WifiOps for fields.
+ * Methods: ping, getState, setEnabled(arg "true"|"false"), listSaved,
+ * connectSaved(arg networkId), reconnect. See WifiOps for fields.
  */
 public class HelperProvider extends ContentProvider {
     static final String TAG = "NookWifi";
@@ -76,6 +77,12 @@ public class HelperProvider extends ContentProvider {
                 return wifi.getState();
             case "setEnabled":
                 return wifi.setEnabled(arg);
+            case "listSaved":
+                return wifi.listSaved();
+            case "connectSaved":
+                return wifi.connectSaved(arg);
+            case "reconnect":
+                return wifi.reconnect();
             default:
                 return Replies.error("unknown_method");
         }

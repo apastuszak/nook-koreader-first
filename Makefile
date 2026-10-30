@@ -4,6 +4,8 @@
 JAVA_HOME ?= /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
 ANDROID_HOME ?= /opt/homebrew/share/android-commandlinetools
 export JAVA_HOME ANDROID_HOME
+# Installed with: luarocks --lua-version=5.1 --lua-dir="$(brew --prefix luajit)" install --local luacheck
+LUACHECK ?= $(HOME)/.luarocks/bin/luacheck
 
 HELPER_PKG := dev.nookwifi.helper
 APK := helper/app/build/outputs/apk/debug/app-debug.apk
@@ -15,10 +17,11 @@ DEVICE_PLUGINS := /sdcard/koreader/plugins
 build:
 	cd helper && ./gradlew --console=plain assembleDebug
 
-# Static checks only; nothing here touches the device.
+# Lint plus offline tests; nothing here touches the device.
 check:
 	cd helper && ./gradlew --console=plain lint
-	@for f in $(PLUGIN)/*.lua; do luajit -bl $$f >/dev/null && echo "syntax ok: $$f"; done
+	$(LUACHECK) --no-color $(PLUGIN) plugin/tests
+	luajit plugin/tests/run.lua
 
 install: install-helper install-plugin
 

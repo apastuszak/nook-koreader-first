@@ -59,6 +59,12 @@ local function errorText(reply, err)
         return _("Nook Wi-Fi Helper does not accept requests from this KOReader build.")
     elseif reply.error == "request_rejected" then
         return _("Android rejected the Wi-Fi request.")
+    elseif reply.error == "wifi_disabled" then
+        return _("Wi-Fi is off.")
+    elseif reply.error == "unknown_network" then
+        return _("That network is no longer saved.")
+    elseif reply.error == "unknown_method" then
+        return _("Nook Wi-Fi Helper is out of date. Update it.")
     end
     return T(_("Nook Wi-Fi Helper reported an error (%1)."), tostring(reply.error))
 end
@@ -106,6 +112,9 @@ local function statusText(state)
 end
 
 function NookWifi:addToMainMenu(menu_items)
+    local function available()
+        return not self.busy and self:getState() ~= nil
+    end
     menu_items.nookwifi = {
         text = _("Nook Wi-Fi"),
         sorting_hint = "network",
@@ -124,9 +133,7 @@ function NookWifi:addToMainMenu(menu_items)
                     local state = self:getState()
                     return state ~= nil and state.enabled
                 end,
-                enabled_func = function()
-                    return not self.busy and self:getState() ~= nil
-                end,
+                enabled_func = available,
                 keep_menu_open = true,
                 callback = function(touchmenu_instance)
                     local state = self:getState(true)
@@ -136,9 +143,20 @@ function NookWifi:addToMainMenu(menu_items)
                 end,
             },
             {
+                text = _("Reconnect"),
+                enabled_func = available,
+                keep_menu_open = true,
+                callback = function(touchmenu_instance) self:reconnect(touchmenu_instance) end,
+            },
+            {
+                text = _("Saved networks"),
+                enabled_func = available,
+                sub_item_table_func = function() return self:savedNetworksMenu() end,
+                separator = true,
+            },
+            {
                 text = _("Open Android Wi-Fi settings"),
                 callback = function() require("android").openWifiSettings() end,
-                separator = true,
             },
             {
                 text = _("Helper info"),
@@ -181,27 +199,56 @@ function NookWifi:showHelperInfo()
     UIManager:show(InfoMessage:new{ text = text })
 end
 
--- Requests the change, then polls until Wi-Fi actually reaches the target state
--- (and, when turning on, until it connects or gives up), so success is only
--- reported once it is real.
-function NookWifi:setWifi(on, touchmenu_instance)
-    if self.busy then return end
-    local reply, err = Helper.call("setEnabled", on and "true" or "false")
+-- Saved networks, current first, then strongest signal, then by name.
+function NookWifi:savedNetworksMenu()
+    local reply, err = Helper.call("listSaved")
     if not reply or not reply.ok then
-        UIManager:show(InfoMessage:new{ text = errorText(reply, err) })
-        return
+        local text = reply and reply.error == "wifi_disabled"
+            and _("Turn on Wi-Fi to see saved networks.") or errorText(reply, err)
+        return { { text = text, enabled = false } }
     end
+    local networks = reply.networks or {}
+    if #networks == 0 then
+        return { { text = _("No saved networks"), enabled = false } }
+    end
+    table.sort(networks, function(a, b)
+        if (a.status == "current") ~= (b.status == "current") then return a.status == "current" end
+        local la, lb = a.signalLevel or -1, b.signalLevel or -1
+        if la ~= lb then return la > lb end
+        return (a.ssid or "") < (b.ssid or "")
+    end)
 
+    local items = {}
+    -- Not `_`: that would shadow gettext for the rest of the loop body.
+    for __, net in ipairs(networks) do
+        local label = net.ssid or _("(hidden network)")
+        if reply.scanAvailable then
+            label = net.signalLevel and T(_("%1 · signal %2/4"), label, net.signalLevel)
+                or T(_("%1 · not in range"), label)
+        end
+        table.insert(items, {
+            text = label,
+            radio = true,
+            checked_func = function()
+                local state = self:getState()
+                return state ~= nil and state.connection == "connected" and state.networkId == net.networkId
+            end,
+            keep_menu_open = true,
+            callback = function(touchmenu_instance) self:connectSaved(net, touchmenu_instance) end,
+        })
+    end
+    return items
+end
+
+-- Starts a Wi-Fi operation: marks the plugin busy and shows progress_text.
+-- Returns finish(text, event_name), which ends the operation, shows text, and
+-- broadcasts event_name (if any) so KOReader and other plugins (e.g. sync)
+-- see the change just as if NetworkMgr had made it.
+function NookWifi:beginOperation(progress_text, touchmenu_instance)
     self.busy = true
-    local progress = InfoMessage:new{ text = on and _("Turning Wi-Fi on…") or _("Turning Wi-Fi off…") }
+    local progress = InfoMessage:new{ text = progress_text }
     UIManager:show(progress)
-    local target = on and "enabled" or "disabled"
-    local waiting_for_connection = false
-    local started = time.now()
-
-    -- event_name, if set, is broadcast so KOReader and other plugins (e.g. sync)
-    -- see the change just as if NetworkMgr had made it.
-    local function finish(text, event_name)
+    return function(text, event_name)
         self.busy = false
         self.cached_state = nil
         UIManager:close(progress)
@@ -212,33 +259,123 @@ function NookWifi:setWifi(on, touchmenu_instance)
         UIManager:show(InfoMessage:new{ text = text, timeout = 3 })
         if touchmenu_instance then touchmenu_instance:updateItems() end
     end
+end
 
-    UIManager:broadcastEvent(Event:new(on and "NetworkConnecting" or "NetworkDisconnecting"))
-
-    local function poll()
+-- Calls step(state) every POLL_INTERVAL_S until it returns true. After
+-- timeout_s it calls on_timeout(last_state); a helper failure ends the
+-- operation through finish.
+function NookWifi:pollState(timeout_s, finish, step, on_timeout)
+    local started = time.now()
+    local function tick()
         local state, msg = self:getState(true)
         if not state then return finish(msg) end
-        local elapsed = time.to_s(time.since(started))
-        if not waiting_for_connection then
-            if state.wifiState == target then
-                if not on then return finish(_("Wi-Fi is off."), "NetworkDisconnected") end
-                waiting_for_connection = true
-                started, elapsed = time.now(), 0
-            elseif elapsed >= STATE_TIMEOUT_S then
-                return finish(T(_("Wi-Fi did not turn %1 within %2 seconds."),
-                    on and _("on") or _("off"), STATE_TIMEOUT_S))
-            end
-        end
-        if waiting_for_connection then
-            if state.connection == "connected" then
-                return finish(T(_("Wi-Fi is on. %1."), connectedText(state)), "NetworkConnected")
-            elseif elapsed >= CONNECT_TIMEOUT_S then
-                return finish(_("Wi-Fi is on but not connected to a network."))
-            end
-        end
-        UIManager:scheduleIn(POLL_INTERVAL_S, poll)
+        if step(state) then return end
+        if time.to_s(time.since(started)) >= timeout_s then return on_timeout(state) end
+        UIManager:scheduleIn(POLL_INTERVAL_S, tick)
     end
-    UIManager:scheduleIn(POLL_INTERVAL_S, poll)
+    UIManager:scheduleIn(POLL_INTERVAL_S, tick)
+end
+
+-- Turns Wi-Fi on if needed, then calls next_step once it reports enabled.
+function NookWifi:ensureEnabled(finish, next_step)
+    local state, msg = self:getState(true)
+    if not state then return finish(msg) end
+    if state.enabled then return next_step() end
+    local reply, err = Helper.call("setEnabled", "true")
+    if not reply or not reply.ok then return finish(errorText(reply, err)) end
+    UIManager:broadcastEvent(Event:new("NetworkConnecting"))
+    self:pollState(STATE_TIMEOUT_S, finish, function(s)
+        if s.wifiState ~= "enabled" then return false end
+        next_step()
+        return true
+    end, function()
+        finish(T(_("Wi-Fi did not turn on within %1 seconds."), STATE_TIMEOUT_S))
+    end)
+end
+
+-- Waits for any connection and reports it.
+function NookWifi:waitForConnection(finish)
+    self:pollState(CONNECT_TIMEOUT_S, finish, function(s)
+        if s.connection ~= "connected" then return false end
+        finish(T(_("Wi-Fi is on. %1."), connectedText(s)), "NetworkConnected")
+        return true
+    end, function()
+        finish(_("Wi-Fi is on but not connected to a network."))
+    end)
+end
+
+-- Each operation below reports success only once Wi-Fi actually reaches the
+-- requested state, not when Android accepts the request.
+
+function NookWifi:setWifi(on, touchmenu_instance)
+    if self.busy then return end
+    if on then
+        local finish = self:beginOperation(_("Turning Wi-Fi on…"), touchmenu_instance)
+        self:ensureEnabled(finish, function() self:waitForConnection(finish) end)
+        return
+    end
+
+    local reply, err = Helper.call("setEnabled", "false")
+    if not reply or not reply.ok then
+        UIManager:show(InfoMessage:new{ text = errorText(reply, err) })
+        return
+    end
+    local finish = self:beginOperation(_("Turning Wi-Fi off…"), touchmenu_instance)
+    UIManager:broadcastEvent(Event:new("NetworkDisconnecting"))
+    self:pollState(STATE_TIMEOUT_S, finish, function(s)
+        if s.wifiState ~= "disabled" then return false end
+        finish(_("Wi-Fi is off."), "NetworkDisconnected")
+        return true
+    end, function()
+        finish(T(_("Wi-Fi did not turn off within %1 seconds."), STATE_TIMEOUT_S))
+    end)
+end
+
+function NookWifi:reconnect(touchmenu_instance)
+    if self.busy then return end
+    local state = self:getState(true)
+    if state and not state.enabled then
+        return self:setWifi(true, touchmenu_instance)
+    end
+    local finish = self:beginOperation(_("Reconnecting…"), touchmenu_instance)
+    local reply, err = Helper.call("reconnect")
+    if not reply or not reply.ok then return finish(errorText(reply, err)) end
+    self:waitForConnection(finish)
+end
+
+function NookWifi:connectSaved(net, touchmenu_instance)
+    if self.busy then return end
+    local name = net.ssid or _("(hidden network)")
+    local finish = self:beginOperation(T(_("Connecting to %1…"), name), touchmenu_instance)
+    self:ensureEnabled(finish, function()
+        local reply, err = Helper.call("connectSaved", tostring(net.networkId))
+        if not reply or not reply.ok then return finish(errorText(reply, err)) end
+        -- If the network is unreachable, Android drops the current connection and
+        -- falls back to another saved network within seconds (seen on the Nook).
+        -- Report that as soon as it happens instead of waiting out the timeout.
+        local dropped = false
+        self:pollState(CONNECT_TIMEOUT_S, finish, function(s)
+            if s.connection ~= "connected" then
+                dropped = true
+                return false
+            end
+            if s.networkId == net.networkId then
+                finish(T(_("Connected to %1."), name), "NetworkConnected")
+                return true
+            end
+            if dropped then
+                finish(T(_("Could not connect to %1. %2 instead."), name, connectedText(s)), "NetworkConnected")
+                return true
+            end
+            return false
+        end, function(s)
+            local text = T(_("Could not connect to %1. It may be out of range."), name)
+            if s.connection == "connected" then
+                text = text .. " " .. T(_("%1."), connectedText(s))
+            end
+            finish(text)
+        end)
+    end)
 end
 
 return NookWifi

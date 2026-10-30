@@ -54,8 +54,10 @@ Installed with Homebrew on 2026-10-30:
 - `plugin/nookwifi.koplugin/`: the KOReader plugin. `nookwifihelper.lua` is the JNI client, and `main.lua` adds the menu under Settings → Network. It is named `nookwifi`, not `wifi`, to avoid clashing with a future built-in plugin.
 - `spikes/`: Stage 0 throwaway test apps. Kept as evidence for the verified results above. They are not part of the product.
 - `scripts/nook-recon.fish`: read-only device diagnostics. Its output is gitignored because it contains network names and addresses.
-- `make build` builds the debug APK. `make check` runs lint and Lua syntax checks and does not touch the device.
-- `make install` installs the helper and pushes the plugin (restart KOReader to load it). `make install-helper` and `make install-plugin` do one each.
+- `make build` builds the debug APK. `make check` runs Android lint, luacheck (configured in `.luacheckrc`), and the offline plugin tests in `plugin/tests/run.lua`. It does not touch the device. Run it before every install.
+- `plugin/tests/run.lua` runs the plugin's real code against stand-ins for KOReader modules and the helper. It covers menu rendering (it evaluates every `text_func`/`checked_func`/`sub_item_table_func`), the polling flows, and the NetworkMgr hooks. Add tests there for new menu items and flows.
+- luacheck is installed for LuaJIT: `luarocks --lua-version=5.1 --lua-dir="$(brew --prefix luajit)" install --local luacheck`. The Lua 5.5 build does not run.
+- `make install` installs the helper and pushes the plugin. KOReader loads plugin code only at startup, and on Android it has **no Restart option**, so the user must **Exit** KOReader and reopen it. `make install-helper` and `make install-plugin` do one each.
 - `make ping` calls the helper over ADB. `make logs` follows `NookWifi` log lines. `make grant-location` runs the one-time `pm grant`. `make uninstall` removes both.
 - Debug builds of the helper also accept the ADB shell (UID 2000) as a caller, so `adb shell content call --uri content://dev.nookwifi.helper --method <m> [--arg <a>]` can test helper methods without KOReader. On API 27, `content call` sends no calling package, so this check matches the UID instead. Release builds accept only the allowlist.
 - Release signing reads `helper/keystore.properties` (gitignored). No release key exists yet; create it in Stage 6. Debug and release signatures differ, so switching from one to the other requires uninstalling the helper first.
@@ -99,6 +101,22 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
   - Verified in KOReader: Settings → Network shows a "Wi-Fi connection" checkbox (instead of "Wi-Fi settings") that toggles without leaving KOReader. With "Action when Wi-Fi is off: turn on", opening an OPDS catalog while Wi-Fi was off turned Wi-Fi on, and connected and validated in about 2.5 s. The "Toggle Wi-Fi" gesture works.
   - One OPDS attempt failed with `HTTP 504 Gateway Time-out` from `m.gutenberg.org`, *after* Wi-Fi had connected and validated. That was a server-side failure, not a timeout on our side. Do not lengthen plugin timeouts because of it.
   - The reference KOReader source for these hooks is `frontend/ui/network/manager.lua` and `frontend/device/android/device.lua` at commit `b44e9b7`. Check them again when the user updates KOReader.
+
+- **Stage 4: done, verified on device** (2026-10-30, helper 0.3.0):
+  - New helper methods:
+    - `listSaved` returns saved networks with networkId, ssid, status, security, and signalLevel from the last scan. It works with Wi-Fi off; `scanAvailable` is false then, or without location permission.
+    - `connectSaved` (arg networkId) calls `enableNetwork(id, true)` and then `reconnect()`.
+    - `reconnect`.
+    - `getState` now also returns `networkId`.
+  - New plugin menu items: Reconnect, and Saved networks (radio list: current network first, then by signal, labelled "signal N/4" or "not in range"). Choosing a network, or Reconnect, turns Wi-Fi on first if needed.
+  - Verified on device:
+    - `enableNetwork(id, true)` works for networks saved by the system or the user, with no root needed.
+    - It does **not** permanently disable other saved networks; they stay "enabled".
+    - Asking for an out-of-range network makes Android drop the current connection and fall back to another saved network within about 3 s. The plugin reports this immediately ("Could not connect to X. Connected to Y instead.") rather than waiting out the 20 s timeout.
+  - Lint flags `getConfiguredNetworks`/`getScanResults` as needing `ACCESS_FINE_LOCATION`. That rule comes from newer APIs, so it is suppressed with a comment; on API 27 the Stage 0 results apply.
+  - **Lessons from a crash in this stage:**
+    - Never name a variable `_` in plugin code. It shadows gettext's `_`, and the next `_("…")` raises an error that takes down all of KOReader. luacheck ignores `_`, so only the offline tests catch this.
+    - KOReader on this device writes no Lua traceback to logcat or `crash.log`. Its crash screen (`CrashReportActivity`) is the only place the error appears.
 
 Complete useful implementation work autonomously. Ask the user for device checks or decisions only when needed. Do not claim device behavior is verified until it has actually been tested.
 
