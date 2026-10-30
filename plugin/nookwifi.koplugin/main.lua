@@ -42,7 +42,7 @@ local AUTH_GRACE_S = 3
 -- Menu text and checkbox funcs run together on each redraw; reuse one reply.
 local STATE_CACHE_S = 1
 
-local PLUGIN_VERSION = "1.0.3"
+local PLUGIN_VERSION = "1.0.4"
 local GRANT_COMMAND = "adb shell pm grant dev.nookwifi.helper android.permission.ACCESS_COARSE_LOCATION"
 
 -- How to grant the helper's location permission: its setup screen, or ADB.
@@ -309,9 +309,12 @@ end
 -- Starts a Wi-Fi operation: marks the plugin busy and shows progress_text.
 -- Returns finish(text, event_name), which ends the operation, shows text (if
 -- any), and broadcasts event_name (if any) so KOReader and other plugins (e.g.
--- sync) see the change just as if NetworkMgr had made it.
+-- sync) see the change just as if NetworkMgr had made it. If the operation
+-- announced NetworkConnecting and ends connected to any network without naming
+-- an event, NetworkConnected is broadcast so listeners still learn it is online.
 function NookWifi:beginOperation(progress_text, touchmenu_instance)
     self.busy = true
+    self.announced_connecting = false
     local progress = InfoMessage:new{ text = progress_text }
     UIManager:show(progress)
     return function(text, event_name)
@@ -319,6 +322,13 @@ function NookWifi:beginOperation(progress_text, touchmenu_instance)
         self.cached_state = nil
         UIManager:close(progress)
         NetworkMgr:queryNetworkState()
+        if not event_name and self.announced_connecting then
+            local state = self:getState(true)
+            if state and state.connection == "connected" then
+                event_name = "NetworkConnected"
+            end
+        end
+        self.announced_connecting = false
         if event_name then
             UIManager:broadcastEvent(Event:new(event_name))
         end
@@ -354,6 +364,7 @@ function NookWifi:ensureEnabled(finish, next_step)
     local reply, err = Helper.call("setEnabled", "true")
     if not reply or not reply.ok then return finish(errorText(reply, err)) end
     UIManager:broadcastEvent(Event:new("NetworkConnecting"))
+    self.announced_connecting = true
     self:pollState(STATE_TIMEOUT_S, finish, function(s)
         if s.wifiState ~= "enabled" then return false end
         next_step()

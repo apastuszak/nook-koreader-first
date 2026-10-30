@@ -719,6 +719,30 @@ test("hook: missing helper keeps exact stock turn-off behavior", function()
     eq(called, true, "stock callback not run")
 end)
 
+-- KOReader toggle feedback ------------------------------------------------------
+
+test("hook: user toggle keeps a message up until connected, then names the network", function()
+    Network.install()
+    wifi.enabled = false
+    local start = polls
+    on_poll = function(n) if n == start + 4 then wifi.connection = "connected" end end
+    wifi.connection = "connecting"
+    NM:turnOnWifi(function() end, true)
+    local progress = shown[#shown]
+    eq(progress.text, "Turning on Wi-Fi…", "progress message")
+    assert(progress.timeout == nil, "progress message times out on its own")
+    runScheduled()
+    eq(lastMessage(), "Wi-Fi on. Connected to Home.", "result message")
+end)
+
+test("hook: non-interactive turn-on shows no extra message", function()
+    Network.install()
+    wifi.enabled = false
+    NM:turnOnWifi(function() end) -- beforeWifiAction path: no interactive flag
+    runScheduled()
+    eq(#shown, 0, "showed a message")
+end)
+
 -- NetworkMgr hooks ------------------------------------------------------------
 
 test("hooks route through helper", function()
@@ -726,7 +750,6 @@ test("hooks route through helper", function()
     eq(device:hasSeamlessWifiToggle(), true, "seamless")
     eq(NM:isWifiOn(), true, "isWifiOn")
     eq(NM:getWifiMenuTable(), "toggle-item", "menu")
-    eq(NM:getCurrentNetwork().ssid, "Home", "current network")
     local called = false
     eq(NM:turnOnWifi(function() called = true end), true, "turnOnWifi")
     assert(called, "turnOnWifi callback not run")
@@ -740,10 +763,54 @@ test("hooks fall back to stock when helper missing", function()
     Network.install()
     helper_missing = true
     eq(NM:isWifiOn(), "stock", "isWifiOn")
+    eq(device:hasSeamlessWifiToggle(), false, "seamless with no helper")
     NM:turnOnWifi()
-    NM:turnOffWifi()
+    NM:turnOffWifi(function() end) -- interactive, as NetworkMgr:disableWifi calls it
     assert(has(stock_calls, "turnOnWifi") and has(stock_calls, "turnOffWifi"), "no stock fallback")
     eq(NM:getWifiMenuTable(), "settings-item", "menu")
+end)
+
+-- Fixes from the 1.0.3 code review ---------------------------------------------
+
+test("getCurrentNetwork is left to stock, so lease checks are not armed", function()
+    Network.install()
+    -- KOReader's hasLeaseForCurrentNetwork treats a nil SSID as "unknown, do not
+    -- disrupt"; an SSID with lease_ssid unset would force a needless reconnect.
+    eq(NM:getCurrentNetwork(), nil, "getCurrentNetwork returned an SSID")
+    assert(has(stock_calls, "getCurrentNetwork"), "stock getCurrentNetwork not used")
+end)
+
+test("seamless toggle follows the helper live", function()
+    Network.install()
+    eq(device:hasSeamlessWifiToggle(), true, "seamless with helper")
+    wifi.fail_method, wifi.fail_error = "getState", "jni_error"
+    eq(device:hasSeamlessWifiToggle(), false, "still seamless with a broken helper")
+end)
+
+for _, case in ipairs({
+    { name = "rejected", setup = function() wifi.set_enabled_rejected = true end },
+    { name = "broken helper", setup = function() wifi.fail_method, wifi.fail_error = "setEnabled", "jni_error" end },
+    { name = "missing helper", setup = function() helper_missing = true end },
+}) do
+    test("background turn-off with a " .. case.name .. " never opens Settings", function()
+        Network.install()
+        case.setup()
+        NM:turnOffWifi() -- NetworkMgr:_abortWifiConnection passes no callback
+        runScheduled()
+        eq(has(stock_calls, "turnOffWifi"), false, "opened Android Settings in the background")
+    end)
+end
+
+test("connecting flow ending on another network still broadcasts NetworkConnected", function()
+    wifi.enabled = false
+    local plugin = newPlugin()
+    wifi.connection = "disconnected"
+    -- Cafe (0) is out of range; Android ends up on Home and stays there.
+    on_poll = function(n) if n == 4 then wifi.connection, wifi.networkId, wifi.ssid = "connected", 1, "Home" end end
+    plugin:connectSaved(wifi.saved[1])
+    runScheduled()
+    eq(lastMessage(), "Could not connect to Cafe. Connected to Home instead.", "message")
+    assert(has(events, "NetworkConnected"), "NetworkConnected not broadcast")
 end)
 
 print(string.format("\n%d passed, %d failed", passed, failed))

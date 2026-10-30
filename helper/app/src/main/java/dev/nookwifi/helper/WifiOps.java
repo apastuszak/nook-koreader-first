@@ -6,6 +6,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
@@ -46,12 +47,23 @@ final class WifiOps {
     private final ConnectivityManager connectivity;
 
     // Set by the supplicant broadcast; reset whenever a connection attempt starts.
+    // Lost if Android kills the helper process between polls: the plugin then
+    // reports a timeout instead of a wrong password.
     private volatile boolean authFailed;
     // Network being authenticated when it failed, or -1 if Android had already cleared it.
     private volatile int authFailedNetworkId = -1;
-    private volatile long lastScanRequestMs;
-    // Networks join() added in this process; the only ones forget() may remove.
-    private final Set<Integer> createdIds = Collections.synchronizedSet(new HashSet<Integer>());
+
+    // Kept on disk, because Android may kill the cached helper process between
+    // the plugin's polls: the scan request time (so "fresh" still works) and the
+    // networks join() created recently, the only ones forget() may remove. Those
+    // are recorded by networkKey, not networkId: IDs are reassigned when Android
+    // loads saved networks at boot, so a stored ID could later name another network.
+    private static final String PREFS = "state";
+    private static final String KEY_SCAN_REQUEST = "lastScanRequestMs";
+    private static final String KEY_CREATED = "createdNetworks";
+    // forget() is only for cleaning up right after a failed join.
+    private static final long FORGET_WINDOW_MS = 10 * 60 * 1000;
+    private final SharedPreferences prefs;
 
     private final BroadcastReceiver supplicantReceiver = new BroadcastReceiver() {
         @Override
@@ -71,6 +83,7 @@ final class WifiOps {
         this.context = context.getApplicationContext();
         this.wifi = (WifiManager) this.context.getSystemService(Context.WIFI_SERVICE);
         this.connectivity = (ConnectivityManager) this.context.getSystemService(Context.CONNECTIVITY_SERVICE);
+        this.prefs = this.context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         // Lives as long as the helper process; there is no teardown point for a ContentProvider.
         this.context.registerReceiver(supplicantReceiver,
                 new IntentFilter(WifiManager.SUPPLICANT_STATE_CHANGED_ACTION));
@@ -161,11 +174,17 @@ final class WifiOps {
         // disableOthers=true is the "user picked this network" path; on API 27 it does
         // not permanently disable the other saved networks.
         resetAuthFailure();
-        boolean accepted = wifi.enableNetwork(networkId, true) && wifi.reconnect();
+        // enableNetwork(id, true) starts the connection itself (connectToUserSelectNetwork
+        // in logcat). Do not add reconnect(): it forces a scan and a fresh network
+        // selection, which can pick another saved network because this firmware
+        // records no user choice for the helper.
+        boolean accepted = wifi.enableNetwork(networkId, true);
         return putState(accepted ? Replies.ok() : Replies.error("request_rejected"));
     }
 
     /** Starts a scan; callers poll scanResults until "fresh" is true. */
+    // commit(), not apply(): the write must survive the process being killed right after.
+    @SuppressLint("ApplySharedPref")
     JSONObject startScan() {
         if (!wifi.isWifiEnabled()) {
             return putState(Replies.error("wifi_disabled"));
@@ -174,7 +193,7 @@ final class WifiOps {
         if (!hasLocationPermission()) {
             return Replies.error("location_permission_needed");
         }
-        lastScanRequestMs = SystemClock.elapsedRealtime();
+        prefs.edit().putLong(KEY_SCAN_REQUEST, SystemClock.elapsedRealtime()).commit();
         return wifi.startScan() ? Replies.ok() : Replies.error("request_rejected");
     }
 
@@ -210,7 +229,10 @@ final class WifiOps {
         int currentId = -1;
         NetworkInfo net = connectivity.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
         if (net != null && net.isConnected()) {
-            currentId = wifi.getConnectionInfo().getNetworkId();
+            WifiInfo info = wifi.getConnectionInfo();
+            if (info != null) {
+                currentId = info.getNetworkId();
+            }
         }
 
         JSONArray networks = new JSONArray();
@@ -229,7 +251,8 @@ final class WifiOps {
         }
         JSONObject reply = Replies.ok();
         Replies.put(reply, "networks", networks);
-        Replies.put(reply, "fresh", lastScanRequestMs > 0 && newestMs >= lastScanRequestMs);
+        long requestedMs = prefs.getLong(KEY_SCAN_REQUEST, 0);
+        Replies.put(reply, "fresh", requestedMs > 0 && newestMs >= requestedMs);
         return reply;
     }
 
@@ -275,9 +298,13 @@ final class WifiOps {
         if (networkId == -1) {
             return putState(Replies.error("request_rejected"));
         }
-        createdIds.add(networkId);
+        recordCreated(networkKey(ssid, security));
         resetAuthFailure();
-        boolean accepted = wifi.enableNetwork(networkId, true) && wifi.reconnect();
+        // enableNetwork(id, true) starts the connection itself (connectToUserSelectNetwork
+        // in logcat). Do not add reconnect(): it forces a scan and a fresh network
+        // selection, which can pick another saved network because this firmware
+        // records no user choice for the helper.
+        boolean accepted = wifi.enableNetwork(networkId, true);
         JSONObject reply = accepted ? Replies.ok() : Replies.error("request_rejected");
         Replies.put(reply, "createdNetworkId", networkId);
         return putState(reply);
@@ -285,8 +312,9 @@ final class WifiOps {
 
     /**
      * arg is a networkId from join's createdNetworkId. Removes that network, for
-     * cleaning up after a failed join. Only networks join() added in this process
-     * can be removed ("not_created_here" otherwise), so a caller bug can never
+     * cleaning up after a failed join. Only a network whose SSID and security match
+     * one join() added in the last 10 minutes can be removed ("not_created_here"
+     * otherwise), so a caller bug can never
      * delete the user's other networks. This Nook's firmware allows removing the
      * helper's own networks but refuses ones saved by the Nook or Android settings.
      */
@@ -297,17 +325,17 @@ final class WifiOps {
         } catch (NumberFormatException e) {
             return Replies.error("bad_argument");
         }
-        if (!createdIds.contains(networkId)) {
-            return Replies.error("not_created_here");
-        }
-        if (!isSaved(networkId)) {
-            createdIds.remove(networkId);
+        String key = savedKey(networkId);
+        if (key == null) {
             return Replies.error("unknown_network");
+        }
+        if (!wasCreatedRecently(key)) {
+            return Replies.error("not_created_here");
         }
         if (!wifi.removeNetwork(networkId)) {
             return Replies.error("request_rejected");
         }
-        createdIds.remove(networkId);
+        forgetCreated(key);
         return Replies.ok();
     }
 
@@ -371,8 +399,10 @@ final class WifiOps {
     }
 
     // Identifies a network the way Android's configKey does: SSID plus security.
+    // Security comes first and never contains '|', so no SSID (which may contain
+    // any character) can make two different networks share a key.
     private static String networkKey(String ssid, String security) {
-        return ssid + "\u0000" + security;
+        return security + "|" + ssid;
     }
 
     @SuppressLint("MissingPermission") // see listSaved
@@ -416,6 +446,63 @@ final class WifiOps {
             }
         }
         return best;
+    }
+
+    // networkKey of the saved network with this ID, or null if there is none.
+    @SuppressLint("MissingPermission") // see listSaved
+    private String savedKey(int networkId) {
+        List<WifiConfiguration> configs = wifi.getConfiguredNetworks();
+        if (configs != null) {
+            for (WifiConfiguration c : configs) {
+                String ssid = unquote(c.SSID);
+                if (c.networkId == networkId && ssid != null) {
+                    return networkKey(ssid, security(c));
+                }
+            }
+        }
+        return null;
+    }
+
+    // Entries are "<creation time ms>|<networkKey>"; the key itself may contain '|'.
+    private boolean wasCreatedRecently(String key) {
+        long now = System.currentTimeMillis();
+        for (String entry : prefs.getStringSet(KEY_CREATED, Collections.<String>emptySet())) {
+            int bar = entry.indexOf('|');
+            long created = Long.parseLong(entry.substring(0, bar));
+            if (entry.substring(bar + 1).equals(key) && now - created >= 0 && now - created < FORGET_WINDOW_MS) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void recordCreated(String key) {
+        updateCreated(key, true);
+    }
+
+    private void forgetCreated(String key) {
+        updateCreated(key, false);
+    }
+
+    // Adds or removes key and drops expired entries. synchronized: two binder
+    // threads must not lose each other's update. commit(), not apply(): the write
+    // must survive the process being killed right after.
+    @SuppressLint("ApplySharedPref")
+    private synchronized void updateCreated(String key, boolean add) {
+        long now = System.currentTimeMillis();
+        Set<String> kept = new HashSet<>();
+        for (String entry : prefs.getStringSet(KEY_CREATED, Collections.<String>emptySet())) {
+            int bar = entry.indexOf('|');
+            long created = Long.parseLong(entry.substring(0, bar));
+            boolean expired = now - created < 0 || now - created >= FORGET_WINDOW_MS;
+            if (!expired && !entry.substring(bar + 1).equals(key)) {
+                kept.add(entry);
+            }
+        }
+        if (add) {
+            kept.add(now + "|" + key);
+        }
+        prefs.edit().putStringSet(KEY_CREATED, kept).commit();
     }
 
     private void resetAuthFailure() {

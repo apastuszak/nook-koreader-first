@@ -77,7 +77,8 @@ public class SetupActivity extends Activity {
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        boolean denied = grantResults.length == 0 || grantResults[0] != PackageManager.PERMISSION_GRANTED;
+        // Empty results mean the request was interrupted, not denied.
+        boolean denied = grantResults.length > 0 && grantResults[0] != PackageManager.PERMISSION_GRANTED;
         blocked = denied && !shouldShowRequestPermissionRationale(PERMISSION);
         refresh();
     }

@@ -17,6 +17,9 @@ VERSION := $(shell sed -n 's/.*versionName = "\(.*\)"/\1/p' helper/app/build.gra
 PLUGIN_VERSION := $(shell sed -n 's/^local PLUGIN_VERSION = "\(.*\)"/\1/p' $(PLUGIN)/main.lua)
 APKSIGNER = $(ANDROID_HOME)/build-tools/$(shell ls $(ANDROID_HOME)/build-tools | sort -V | tail -1)/apksigner
 DIST := dist
+# SHA-256 of the release signing certificate (~/.android/nookwifi-release.jks).
+# Every release must be signed with this key, or updates fail to install.
+RELEASE_CERT_SHA256 := 86f2c36fd0268087a23c5cd8b748720e97d476697fca0cc75eca0f2127ba2415
 
 .PHONY: build check install install-helper install-plugin grant-location ping logs uninstall clean \
 	release install-release dist
@@ -76,6 +79,8 @@ dist: check release
 	@test "$(VERSION)" = "$(PLUGIN_VERSION)" || { echo "Version mismatch: helper $(VERSION), plugin $(PLUGIN_VERSION)"; exit 1; }
 	grep -q 'version = "$(VERSION)"' $(PLUGIN)/_meta.lua || { echo "_meta.lua version is not $(VERSION)"; exit 1; }
 	$(APKSIGNER) verify $(RELEASE_APK)
+	@$(APKSIGNER) verify --print-certs $(RELEASE_APK) 2>/dev/null | grep -q 'certificate SHA-256 digest: $(RELEASE_CERT_SHA256)' \
+		|| { echo "APK is not signed with the release key ($(RELEASE_CERT_SHA256))"; exit 1; }
 	rm -rf $(DIST) && mkdir -p $(DIST)
 	cp $(RELEASE_APK) $(DIST)/nookwifi-helper-$(VERSION).apk
 	cd plugin && zip -qrX ../$(DIST)/nookwifi.koplugin-$(VERSION).zip nookwifi.koplugin -x '*.DS_Store'

@@ -101,7 +101,7 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
   - A way to grant location without ADB was added in Stage 6 (`SetupActivity`).
 
 - **Stage 3: done, verified on device** (2026-10-30, KOReader nightly `b44e9b7`):
-  - `nookwifinetwork.lua` replaces `NetworkMgr.isWifiOn`, `turnOnWifi`, `turnOffWifi`, `getCurrentNetwork` and `getWifiMenuTable` once per session. It also sets `Device.hasSeamlessWifiToggle` to true when the helper responds.
+  - `nookwifinetwork.lua` replaces `NetworkMgr.isWifiOn`, `turnOnWifi`, `turnOffWifi` and `getWifiMenuTable` once per session, and makes `Device.hasSeamlessWifiToggle` check the helper live. (Until 1.0.4 it also replaced `getCurrentNetwork` and set seamless once; see 1.0.4.)
   - Every override falls back to KOReader's original method when the helper cannot be reached. This was verified only offline, with stubbed KOReader modules; the fallback is not yet tested on the device.
   - `turnOnWifi` runs NetworkMgr's callback immediately, and NetworkMgr's own connectivity check then waits for the connection and broadcasts `NetworkConnected`. `turnOffWifi` waits up to 10 s for "disabled" before running its callback.
   - The plugin's own Wi-Fi checkbox now broadcasts `NetworkConnecting`/`NetworkConnected` and `NetworkDisconnecting`/`NetworkDisconnected`, so sync and other plugins see the change.
@@ -112,7 +112,7 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
 - **Stage 4: done, verified on device** (2026-10-30, helper 0.3.0):
   - New helper methods:
     - `listSaved` returns saved networks with networkId, ssid, status, security, and signalLevel from the last scan. It works with Wi-Fi off; `scanAvailable` is false then, or without location permission.
-    - `connectSaved` (arg networkId) calls `enableNetwork(id, true)` and then `reconnect()`.
+    - `connectSaved` (arg networkId) calls `enableNetwork(id, true)`, which starts the connection by itself. Until 1.0.4 it also called `reconnect()`; see 1.0.4.
     - `reconnect`.
     - `getState` now also returns `networkId`.
   - New plugin menu items: Reconnect, and Saved networks (radio list: current network first, then by signal, labelled "signal N/4" or "not in range"). Choosing a network, or Reconnect, turns Wi-Fi on first if needed.
@@ -129,7 +129,7 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
   - New helper methods:
     - `scan` and `scanResults`: one entry per SSID with signalLevel, security, current, savedNetworkId. `fresh` becomes true once results newer than the scan request arrive (about 1 s on the Nook). Both return `location_permission_needed` rather than Android's silent empty list.
     - `join`: extras ssid/security/password. Returns `createdNetworkId`. Refuses SSIDs that are already saved (`already_saved` with `savedNetworkId`), so a typo can never overwrite a working password.
-    - `forget`: only removes networks `join` created in this helper process; anything else gets `not_created_here`.
+    - `forget`: only removes a network whose SSID and security match one `join` created in the last 10 minutes (recorded on disk since 1.0.4); anything else gets `not_created_here`.
     - `getState.authFailed`: set from the `SUPPLICANT_STATE_CHANGED` broadcast with `ERROR_AUTHENTICATING`, and reset when a connect starts.
   - Supported security: open and WPA/WPA2-PSK (WPA2/WPA3 transition networks join as WPA2). WPA3-only (SAE), OWE, Enterprise (EAP) and WEP get an explicit "not supported, use Android settings" message.
   - Plugin flows:
@@ -196,6 +196,28 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
   - `awaitNetwork` checked the retained `authFailed` before checking for success, so a transient auth failure followed by a successful connection reported "Wrong password" and removed a working network. Success is now checked first, and an auth failure must persist for `AUTH_GRACE_S` (3 s) without the requested network connecting.
   - **`nookwifihelper.lua` no longer uses KOReader's `jni:call*Method` or `jni:to_string`.** Those chain `FindClass`/`GetObjectClass`, `Get*MethodID`, the call and `DeleteLocalRef` without checking for exceptions, and `to_string` does not check `GetStringUTFChars` for NULL. The client now uses raw JNI functions with a check after each call, inside a `pcall` within the JNI context so the thread is always detached. Keep it that way.
 - **Release 1.0.3** (2026-10-30). Fix from Codex's review of 1.0.2: the `turnOffWifi` hook used stock behavior (which runs the callback at once) for *every* failed first call. **Rule: only `helper_not_installed` gets exact stock behavior.** Other helper failures (`jni_error`, `bad_reply`, `protocol_mismatch`, a rejection, losing the helper mid-way) go through `openSettingsOnly`, so KOReader is never told Wi-Fi is off while it may be on. The normal paths are unchanged; the fix is covered by offline tests that fail on 1.0.2.
+- **Release 1.0.4** (2026-10-30). Verified on device:
+  - wrong password, after which the created network was removed through the on-disk record
+  - right password, connecting without `reconnect()`
+  - switching home → hotspot → home, each a single `connectSaved` with no fallback
+  - Wi-Fi off/on through KOReader's toggle, with the message kept up until connected
+  - no stale-lease reconnects in logcat
+
+  Fixes from Claude's review of 1.0.3:
+  - **`getCurrentNetwork` is no longer overridden.** Returning an SSID armed KOReader's `hasLeaseForCurrentNetwork`, which compares it with `lease_ssid`. That field is set only by NetworkMgr's own connectivity checks, so connections made at startup, by Android or by the plugin looked like stale leases and forced reconnects. Stock Android returns nil, which means "unknown, do not disrupt".
+  - **Helper state survives process death.** The scan request time and the networks `join` created are kept in SharedPreferences (written with `commit()`, synchronously). Created networks are recorded as `<time>|<networkKey>`, never by networkId, because IDs are reassigned when Android loads saved networks at boot; a stored ID could later name another network. `authFailed` still lives only in memory: if the process dies mid-join, the plugin reports a timeout instead of a wrong password.
+  - **No `reconnect()` after `enableNetwork(id, true)`** in `connectSaved` and `join`. It forced a scan and a fresh network selection, which could pick another saved network because no user choice is recorded. This is a likely cause of the earlier "brief autojoin"; `FALLBACK_GRACE_S` stays as a safety net.
+  - **`NetworkConnected` is broadcast** when a flow that announced `NetworkConnecting` ends connected to any network, including after a fallback.
+  - **`hasSeamlessWifiToggle` checks the helper live,** and a background `turnOffWifi` (NetworkMgr's `_abortWifiConnection` passes no callback) never opens Android Settings.
+  - A null check on `getConnectionInfo()` in `scanResults`.
+  - `SetupActivity` treats an interrupted request (empty results) as "not denied".
+  - **`make dist` checks the APK's signing certificate** against `RELEASE_CERT_SHA256`. Tested: a wrong fingerprint fails the build.
+  - **Security:** `networkKey` is now `security + "|" + ssid`. The old `ssid + NUL + security` could collide for crafted SSIDs, which reopens the wrong-profile match.
+  - **UX:** KOReader's toggle closes its "Turning on Wi-Fi…" message as soon as `turnOnWifi` returns (elsewhere that call blocks). For interactive calls (menu toggle and Wi-Fi gestures only), the hook keeps the same message up until connected, then shows "Wi-Fi on. Connected to X." for 3 s.
+
+  Declined from that review:
+  - Keeping a newly joined network after a non-password failure: unverified credentials should not stay saved.
+  - Telling KOReader when Wi-Fi turns off after the 10 s timeout: turning off takes about 0.6 s, and KOReader rechecks the state live.
 - **Next (optional, user's choice):** the minimal Home launcher described under Scope boundaries. The user agreed to do it after Stage 6. It must be a separate APK, needs the user's explicit go-ahead before it is made the default launcher, a tested way back to Olauncher, and a guard against relaunch loops if KOReader crashes or is missing. It can be signed with the same release key.
 
 Complete useful implementation work autonomously. Ask the user for device checks or decisions only when needed. Do not claim device behavior is verified until it has actually been tested.
