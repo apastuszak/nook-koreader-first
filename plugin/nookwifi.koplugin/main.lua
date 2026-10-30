@@ -42,7 +42,7 @@ local AUTH_GRACE_S = 3
 -- Menu text and checkbox funcs run together on each redraw; reuse one reply.
 local STATE_CACHE_S = 1
 
-local PLUGIN_VERSION = "1.0.5"
+local PLUGIN_VERSION = "1.0.6"
 local GRANT_COMMAND = "adb shell pm grant dev.nookwifi.helper android.permission.ACCESS_COARSE_LOCATION"
 
 -- How to grant the helper's location permission: its setup screen, or ADB.

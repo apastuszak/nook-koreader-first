@@ -21,7 +21,15 @@ final class CreatedNetworks {
     private CreatedNetworks() {
     }
 
+    /**
+     * True if key was recorded within WINDOW_MS during this boot. A negative boot
+     * count means "unknown": then nothing is recent, because without it a reboot
+     * could make an old entry look new. forget() then refuses, which is safe.
+     */
     static boolean isRecent(Set<String> entries, String key, int boot, long nowMs) {
+        if (boot < 0) {
+            return false;
+        }
         for (String entry : entries) {
             Parsed p = Parsed.of(entry);
             if (p != null && p.key.equals(key) && p.isLive(boot, nowMs)) {
@@ -43,7 +51,7 @@ final class CreatedNetworks {
                 kept.add(entry);
             }
         }
-        if (add) {
+        if (add && boot >= 0) {
             kept.add(boot + "|" + nowMs + "|" + key);
         }
         return kept;

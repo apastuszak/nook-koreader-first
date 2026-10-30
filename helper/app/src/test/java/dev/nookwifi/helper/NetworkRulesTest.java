@@ -55,10 +55,10 @@ public class NetworkRulesTest {
     public void pskRules() {
         assertTrue(NetworkRules.isValidPsk("12345678"));
         assertTrue(NetworkRules.isValidPsk("correct horse battery staple"));
-        assertTrue(NetworkRules.isValidPsk(repeat('a', 63)));
-        assertTrue(NetworkRules.isValidPsk(repeat('F', 64))); // raw hex key
+        assertTrue(NetworkRules.isValidPsk("a".repeat(63)));
+        assertTrue(NetworkRules.isValidPsk("F".repeat(64))); // raw hex key
         assertFalse(NetworkRules.isValidPsk("1234567"));
-        assertFalse(NetworkRules.isValidPsk(repeat('g', 64))); // 64 chars, not hex
+        assertFalse(NetworkRules.isValidPsk("g".repeat(64))); // 64 chars, not hex
         assertFalse(NetworkRules.isValidPsk("café au lait")); // non-ASCII
         assertFalse(NetworkRules.isValidPsk("tab\there!!"));
         assertFalse(NetworkRules.isValidPsk(null));
@@ -66,8 +66,8 @@ public class NetworkRulesTest {
 
     @Test
     public void hexKeysAreNotQuoted() {
-        assertTrue(NetworkRules.isHexKey(repeat('0', 64)));
-        assertFalse(NetworkRules.isHexKey(repeat('0', 63)));
+        assertTrue(NetworkRules.isHexKey("0".repeat(64)));
+        assertFalse(NetworkRules.isHexKey("0".repeat(63)));
         assertEquals("\"pass word\"", NetworkRules.quote("pass word"));
     }
 
@@ -78,13 +78,5 @@ public class NetworkRulesTest {
         assertEquals("0a1b2c", NetworkRules.unquote("0a1b2c")); // hex SSIDs are bare
         assertNull(NetworkRules.unquote(""));
         assertNull(NetworkRules.unquote(null));
-    }
-
-    private static String repeat(char c, int n) {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < n; i++) {
-            sb.append(c);
-        }
-        return sb.toString();
     }
 }

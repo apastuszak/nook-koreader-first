@@ -20,8 +20,8 @@ android {
         minSdk = 27
         // Matches the Nook (API 27) and the behavior verified in Stage 0.
         targetSdk = 27
-        versionCode = 11
-        versionName = "1.0.5"
+        versionCode = 12
+        versionName = "1.0.6"
     }
 
     compileOptions {
@@ -47,11 +47,6 @@ android {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
-    }
-
-    testOptions {
-        // NetworkRules and CreatedNetworks are plain Java; fail loudly if a test touches Android.
-        unitTests.isReturnDefaultValues = false
     }
 
     lint {

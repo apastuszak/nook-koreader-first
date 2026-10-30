@@ -60,7 +60,8 @@ local function showProgressUntilConnected()
     UIManager:show(progress)
     local started = time.now()
     -- Wi-Fi can still report "disabled" for up to ~1 s after the request (seen in
-    -- Stage 2), so "off" only means superseded once it has started coming on.
+    -- Stage 2), so "off" only ends the wait once it has started coming on. A
+    -- passing "unknown" state (driver restart) neither starts nor ends it.
     local came_on = false
     local function poll()
         local state = helperState()
@@ -69,6 +70,7 @@ local function showProgressUntilConnected()
             return
         end
         local on_or_coming = state.wifiState == "enabling" or state.wifiState == "enabled"
+        local off_or_going = state.wifiState == "disabled" or state.wifiState == "disabling"
         came_on = came_on or on_or_coming
         if state.connection == "connected" then
             UIManager:close(progress)
@@ -76,9 +78,11 @@ local function showProgressUntilConnected()
                 text = state.ssid and T(_("Wi-Fi on. Connected to %1."), state.ssid) or _("Wi-Fi on."),
                 timeout = 3,
             })
-        elseif came_on and not on_or_coming then
-            -- Turned off again meanwhile (e.g. by the user): this attempt is over.
+        elseif came_on and off_or_going then
+            -- Off again: the user switched it off, or turning on failed. Either
+            -- way this attempt is over, and "Wi-Fi is off." is true for both.
             UIManager:close(progress)
+            UIManager:show(InfoMessage:new{ text = _("Wi-Fi is off."), timeout = 3 })
         elseif time.to_s(time.since(started)) >= ON_PROGRESS_TIMEOUT_S then
             UIManager:close(progress)
             UIManager:show(InfoMessage:new{

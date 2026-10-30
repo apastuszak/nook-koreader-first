@@ -85,6 +85,16 @@ public class CreatedNetworksTest {
     }
 
     @Test
+    public void unknownBootCountMakesNothingRecent() {
+        // Without a boot count a reboot cannot be detected, so nothing may be forgotten.
+        Set<String> s = created(CAFE, -1, T0);
+        assertFalse(CreatedNetworks.isRecent(s, CAFE, -1, T0 + 1_000));
+        assertTrue("unknown boot count should not be recorded", s.isEmpty());
+        Set<String> known = created(CAFE, BOOT, T0);
+        assertFalse(CreatedNetworks.isRecent(known, CAFE, -1, T0 + 1_000));
+    }
+
+    @Test
     public void keysContainingSeparatorsRoundTrip() {
         String odd = NetworkRules.networkKey("a|b|c", "open");
         Set<String> s = created(odd, BOOT, T0);

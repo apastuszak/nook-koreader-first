@@ -66,9 +66,13 @@ final class WifiOps {
     // CreatedNetworks for why they are keyed by networkKey, boot and elapsed time).
     private static final String PREFS = "state";
     private static final String KEY_SCAN_REQUEST = "lastScanRequestMs";
-    // 1.0.4 stored "createdNetworks" in a wall-clock format; a new key avoids it.
     private static final String KEY_CREATED = "createdNetworksV2";
+    // 1.0.4's wall-clock format; nothing reads it, so it is deleted at startup.
+    private static final String KEY_CREATED_V1 = "createdNetworks";
     private final SharedPreferences prefs;
+    // Settings.Global.BOOT_COUNT, read once: a process never outlives a boot. -1 if
+    // unavailable, which makes CreatedNetworks treat nothing as recent.
+    private final int bootCount;
 
     private final BroadcastReceiver supplicantReceiver = new BroadcastReceiver() {
         @Override
@@ -89,6 +93,10 @@ final class WifiOps {
         this.wifi = (WifiManager) this.context.getSystemService(Context.WIFI_SERVICE);
         this.connectivity = (ConnectivityManager) this.context.getSystemService(Context.CONNECTIVITY_SERVICE);
         this.prefs = this.context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (prefs.contains(KEY_CREATED_V1)) {
+            prefs.edit().remove(KEY_CREATED_V1).apply();
+        }
+        this.bootCount = Settings.Global.getInt(this.context.getContentResolver(), Settings.Global.BOOT_COUNT, -1);
         // Lives as long as the helper process; there is no teardown point for a ContentProvider.
         this.context.registerReceiver(supplicantReceiver,
                 new IntentFilter(WifiManager.SUPPLICANT_STATE_CHANGED_ACTION));
@@ -462,7 +470,7 @@ final class WifiOps {
     }
 
     private boolean wasCreatedRecently(String key) {
-        return CreatedNetworks.isRecent(createdEntries(), key, bootCount(), SystemClock.elapsedRealtime());
+        return CreatedNetworks.isRecent(createdEntries(), key, bootCount, SystemClock.elapsedRealtime());
     }
 
     private void recordCreated(String key) {
@@ -477,18 +485,13 @@ final class WifiOps {
     // not apply(): the write must survive the process being killed right after.
     @SuppressLint("ApplySharedPref")
     private synchronized void updateCreated(String key, boolean add) {
-        Set<String> updated = CreatedNetworks.update(createdEntries(), key, add, bootCount(),
+        Set<String> updated = CreatedNetworks.update(createdEntries(), key, add, bootCount,
                 SystemClock.elapsedRealtime());
         prefs.edit().putStringSet(KEY_CREATED, updated).commit();
     }
 
     private Set<String> createdEntries() {
         return prefs.getStringSet(KEY_CREATED, Collections.<String>emptySet());
-    }
-
-    // Changes on every boot, which is when elapsedRealtime restarts. -1 if unavailable.
-    private int bootCount() {
-        return Settings.Global.getInt(context.getContentResolver(), Settings.Global.BOOT_COUNT, -1);
     }
 
     private void resetAuthFailure() {

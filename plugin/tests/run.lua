@@ -14,6 +14,7 @@ package.path = PLUGIN_DIR .. "/?.lua;" .. package.path
 local now = 0
 local queue = {}
 local shown = {}
+local closed = {}
 local events = {}
 
 local function runScheduled(max_steps)
@@ -36,7 +37,10 @@ end
 package.preload["ui/uimanager"] = function()
     return {
         show = function(_, w) table.insert(shown, w) end,
-        close = function(_, w) if w and w.onCloseWidget then w:onCloseWidget() end end,
+        close = function(_, w)
+            closed[w] = true
+            if w and w.onCloseWidget then w:onCloseWidget() end
+        end,
         scheduleIn = function(_, delay, fn, ...)
             local args = { ... }
             table.insert(queue, { delay = delay, fn = function() fn(unpack(args)) end })
@@ -146,7 +150,7 @@ end
 local function stateReply()
     local s = {
         ok = true, protocol = 1,
-        wifiState = wifi.enabled and "enabled" or "disabled",
+        wifiState = wifi.state_now or (wifi.enabled and "enabled" or "disabled"),
         enabled = wifi.enabled,
         locationPermission = wifi.locationPermission,
         connection = wifi.enabled and wifi.connection or "disconnected",
@@ -168,6 +172,12 @@ package.preload["nookwifihelper"] = function()
             if wifi.fail_method == method then return nil, wifi.fail_error end
             if method == "getState" then
                 if wifi.getstate_fail then return nil, "jni_error" end
+                -- Replay scripted wifiState transitions, one per poll (like the Nook,
+                -- which reads "disabled" for up to ~1 s after a turn-on request).
+                wifi.state_now = nil
+                if wifi.state_script and #wifi.state_script > 0 then
+                    wifi.state_now = table.remove(wifi.state_script, 1)
+                end
                 polls = polls + 1
                 if on_poll then on_poll(polls) end
                 return stateReply()
@@ -239,7 +249,7 @@ end
 local passed, failed = 0, 0
 local function test(name, fn)
     resetWifi()
-    now, queue, shown, events, stock_calls = 0, {}, {}, {}, {}
+    now, queue, shown, closed, events, stock_calls = 0, {}, {}, {}, {}, {}
     local ok, err = pcall(fn)
     if ok then
         passed = passed + 1
@@ -736,25 +746,62 @@ test("hook: user toggle keeps a message up until connected, then names the netwo
     eq(lastMessage(), "Wi-Fi on. Connected to Home.", "result message")
 end)
 
-test("hook: progress stops quietly if Wi-Fi is turned off meanwhile", function()
+-- Starts an interactive turn-on and returns the progress widget.
+local function startToggle()
+    NM:turnOnWifi(function() end, true)
+    local progress = shown[#shown]
+    eq(progress.text, "Turning on Wi-Fi…", "progress message")
+    return progress
+end
+
+test("hook: progress survives the stale 'disabled' right after the request", function()
     Network.install()
     wifi.enabled = false
-    local start = polls
-    -- Comes on, then the user turns it off before any connection.
-    on_poll = function(n) if n == start + 3 then wifi.enabled = false end end
     wifi.connection = "connecting"
-    NM:turnOnWifi(function() end, true)
+    wifi.state_script = { "disabled", "disabled", "enabling", "enabled" }
+    local start = polls
+    on_poll = function(n) if n == start + 5 then wifi.connection = "connected" end end
+    local progress = startToggle()
     runScheduled()
-    eq(lastMessage(), "Turning on Wi-Fi…", "showed a result for a superseded attempt")
+    eq(lastMessage(), "Wi-Fi on. Connected to Home.", "result message")
+    assert(closed[progress], "progress message not closed")
+end)
+
+test("hook: progress tolerates a passing 'unknown' state", function()
+    Network.install()
+    wifi.enabled = false
+    wifi.connection = "connecting"
+    wifi.state_script = { "enabling", "unknown", "enabled" }
+    local start = polls
+    on_poll = function(n) if n == start + 4 then wifi.connection = "connected" end end
+    local progress = startToggle()
+    runScheduled()
+    eq(lastMessage(), "Wi-Fi on. Connected to Home.", "result message")
+    assert(closed[progress], "progress message not closed")
+end)
+
+test("hook: turning on that fails partway says Wi-Fi is off", function()
+    Network.install()
+    wifi.enabled = false
+    wifi.connection = "disconnected"
+    -- Comes on, then the driver fails (or the user switches it off).
+    wifi.state_script = { "enabling", "disabled" }
+    local start = polls
+    on_poll = function(n) if n == start + 2 then wifi.enabled = false end end
+    local progress = startToggle()
+    runScheduled()
+    eq(lastMessage(), "Wi-Fi is off.", "message")
+    assert(closed[progress], "progress message not closed")
 end)
 
 test("hook: progress timeout says Wi-Fi did not turn on when it is still off", function()
     Network.install()
     wifi.enabled = false
     wifi.ignore_on = true -- the request is accepted but Wi-Fi never comes on
-    NM:turnOnWifi(function() end, true)
+    local progress = startToggle()
     runScheduled()
     eq(lastMessage(), "Wi-Fi did not turn on.", "message")
+    assert(closed[progress], "progress message not closed")
 end)
 
 test("hook: non-interactive turn-on shows no extra message", function()
