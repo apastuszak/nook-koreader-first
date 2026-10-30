@@ -29,6 +29,7 @@ check:
 	cd helper && ./gradlew --console=plain lint
 	$(LUACHECK) --no-color $(PLUGIN) plugin/tests
 	luajit plugin/tests/run.lua
+	luajit plugin/tests/jni.lua
 
 install: install-helper install-plugin
 

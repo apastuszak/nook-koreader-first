@@ -34,42 +34,72 @@ local function takeException(jni)
 end
 
 -- Returns the reply's raw JSON string, or nil and an error string. Never
--- raises inside the JNI context, so the thread is always detached.
+-- raises inside the JNI context, so the thread is always detached. Every JNI
+-- call that can throw is followed by takeException, because making another JNI
+-- call with an exception pending is undefined behavior.
 local function rawCall(method, arg, extras)
     local android = require("android")
     return android.jni:context(android.app.activity.vm, function(jni)
         local env = jni.env
-        local uri = jni:callStaticObjectMethod("android/net/Uri", "parse",
-            "(Ljava/lang/String;)Landroid/net/Uri;",
-            env[0].NewStringUTF(env, "content://" .. AUTHORITY))
-        local err = takeException(jni)
+        -- Wraps a JNI call: returns its result, or nil and the exception text.
+        local function checked(value)
+            local err = takeException(jni)
+            if err then return nil, err end
+            return value
+        end
+        local function jstring(text)
+            return checked(env[0].NewStringUTF(env, text))
+        end
+
+        local uri_text, err = jstring("content://" .. AUTHORITY)
+        if err then return nil, err end
+        local uri
+        uri, err = checked(jni:callStaticObjectMethod("android/net/Uri", "parse",
+            "(Ljava/lang/String;)Landroid/net/Uri;", uri_text))
         if err then return nil, err end
 
         local bundle_in
         if extras then
-            local cls = env[0].FindClass(env, "android/os/Bundle")
-            bundle_in = env[0].NewObject(env, cls, env[0].GetMethodID(env, cls, "<init>", "()V"))
-            for k, v in pairs(extras) do
-                jni:callVoidMethod(bundle_in, "putString", "(Ljava/lang/String;Ljava/lang/String;)V",
-                    env[0].NewStringUTF(env, k), env[0].NewStringUTF(env, v))
-            end
-            err = takeException(jni)
+            local cls
+            cls, err = checked(env[0].FindClass(env, "android/os/Bundle"))
             if err then return nil, err end
+            local ctor
+            ctor, err = checked(env[0].GetMethodID(env, cls, "<init>", "()V"))
+            if err then return nil, err end
+            bundle_in, err = checked(env[0].NewObject(env, cls, ctor))
+            if err then return nil, err end
+            for k, v in pairs(extras) do
+                local jk, jv
+                jk, err = jstring(k)
+                if err then return nil, err end
+                jv, err = jstring(v)
+                if err then return nil, err end
+                jni:callVoidMethod(bundle_in, "putString", "(Ljava/lang/String;Ljava/lang/String;)V", jk, jv)
+                err = takeException(jni)
+                if err then return nil, err end
+            end
         end
 
-        local resolver = jni:callObjectMethod(android.app.activity.clazz,
-            "getContentResolver", "()Landroid/content/ContentResolver;")
-        local reply = jni:callObjectMethod(resolver, "call",
+        local jmethod, jarg, resolver, reply, jkey, json_str
+        jmethod, err = jstring(method)
+        if err then return nil, err end
+        if arg then
+            jarg, err = jstring(arg)
+            if err then return nil, err end
+        end
+        resolver, err = checked(jni:callObjectMethod(android.app.activity.clazz,
+            "getContentResolver", "()Landroid/content/ContentResolver;"))
+        if err then return nil, err end
+        reply, err = checked(jni:callObjectMethod(resolver, "call",
             "(Landroid/net/Uri;Ljava/lang/String;Ljava/lang/String;Landroid/os/Bundle;)Landroid/os/Bundle;",
-            uri, env[0].NewStringUTF(env, method),
-            arg and env[0].NewStringUTF(env, arg) or nil, bundle_in)
-        err = takeException(jni)
+            uri, jmethod, jarg, bundle_in))
         if err then return nil, err end
         if reply == nil then return nil, "helper returned null" end
 
-        local json_str = jni:callObjectMethod(reply, "getString",
-            "(Ljava/lang/String;)Ljava/lang/String;", env[0].NewStringUTF(env, "json"))
-        err = takeException(jni)
+        jkey, err = jstring("json")
+        if err then return nil, err end
+        json_str, err = checked(jni:callObjectMethod(reply, "getString",
+            "(Ljava/lang/String;)Ljava/lang/String;", jkey))
         if err then return nil, err end
         if json_str == nil then return nil, "reply has no json" end
         return jni:to_string(json_str)

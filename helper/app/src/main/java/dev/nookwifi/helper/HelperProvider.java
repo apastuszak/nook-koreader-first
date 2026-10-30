@@ -50,16 +50,20 @@ public class HelperProvider extends ContentProvider {
 
     @Override
     public Bundle call(String method, String arg, Bundle extras) {
-        String caller = getCallingPackage();
-        // Log the method only: join's extras carry a password.
-        Log.i(TAG, "call " + method + " from " + caller);
         JSONObject reply;
         try {
+            // Throws SecurityException if the caller's package and UID do not match.
+            String caller = getCallingPackage();
+            // Log the method only: join's extras carry a password.
+            Log.i(TAG, "call " + method + " from " + caller);
             if (!isAllowed(caller)) {
                 reply = Replies.error("caller_not_allowed");
             } else {
                 reply = dispatch(method, arg, extras);
             }
+        } catch (SecurityException e) {
+            Log.w(TAG, "call " + method + ": caller identity check failed");
+            reply = Replies.error("caller_not_allowed");
         } catch (RuntimeException e) {
             // The exception, not the arguments: those may include a password.
             Log.e(TAG, "call " + method + " failed", e);

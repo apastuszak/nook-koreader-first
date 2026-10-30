@@ -62,7 +62,8 @@ local function turnOnWifi(self, complete_callback, interactive)
 end
 
 -- Waits for Wi-Fi to actually report disabled before running the callback,
--- which broadcasts NetworkDisconnected and refreshes menus.
+-- which broadcasts NetworkDisconnected and refreshes menus. The callback runs
+-- only once Wi-Fi is really off, so KOReader is never told it is off while on.
 local function turnOffWifi(self, complete_callback)
     local reply, err = Helper.call("setEnabled", "false")
     if not reply then
@@ -70,19 +71,24 @@ local function turnOffWifi(self, complete_callback)
         return orig.turnOffWifi(self, complete_callback)
     end
     if not reply.ok then
-        logger.warn("NookWifi: turnOffWifi rejected:", reply.error)
+        -- Polling would end in a NetworkDisconnected broadcast while Wi-Fi is still on.
+        logger.warn("NookWifi: turnOffWifi rejected, falling back to stock behavior:", reply.error)
+        return orig.turnOffWifi(self, complete_callback)
     end
     local started = time.now()
     local function poll()
         local state = helperState()
-        local done = not state or state.wifiState == "disabled"
-        if done or time.to_s(time.since(started)) >= OFF_TIMEOUT_S then
-            if not done then
-                logger.warn("NookWifi: Wi-Fi did not report disabled within", OFF_TIMEOUT_S, "s")
-            end
-            if complete_callback then
-                complete_callback()
-            end
+        if not state then
+            -- The helper stopped answering mid-way; let stock behavior take over.
+            logger.warn("NookWifi: lost the helper while turning Wi-Fi off, falling back to stock behavior")
+            return orig.turnOffWifi(self, complete_callback)
+        end
+        if state.wifiState == "disabled" then
+            if complete_callback then complete_callback() end
+        elseif time.to_s(time.since(started)) >= OFF_TIMEOUT_S then
+            -- Still on: refresh NetworkMgr's view instead of announcing a disconnect.
+            logger.warn("NookWifi: Wi-Fi did not report disabled within", OFF_TIMEOUT_S, "s")
+            self:queryNetworkState()
         else
             UIManager:scheduleIn(OFF_POLL_INTERVAL_S, poll)
         end

@@ -6,4 +6,6 @@
     <string name="setup_needed">Location access is needed for scanning and network names.</string>
     <string name="setup_done">All set. You can close this app and use Nook Wi-Fi in KOReader under Settings → Network.</string>
     <string name="setup_allow">Allow location access</string>
+    <string name="setup_blocked">Android will not ask again. Open the app settings, tap Permissions, and turn on Location.</string>
+    <string name="setup_open_settings">Open app settings</string>
 </resources>

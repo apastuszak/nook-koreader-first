@@ -47,6 +47,8 @@ final class WifiOps {
 
     // Set by the supplicant broadcast; reset whenever a connection attempt starts.
     private volatile boolean authFailed;
+    // Network being authenticated when it failed, or -1 if Android had already cleared it.
+    private volatile int authFailedNetworkId = -1;
     private volatile long lastScanRequestMs;
     // Networks join() added in this process; the only ones forget() may remove.
     private final Set<Integer> createdIds = Collections.synchronizedSet(new HashSet<Integer>());
@@ -58,6 +60,8 @@ final class WifiOps {
                 return;
             }
             if (intent.getIntExtra(WifiManager.EXTRA_SUPPLICANT_ERROR, 0) == WifiManager.ERROR_AUTHENTICATING) {
+                WifiInfo info = wifi.getConnectionInfo();
+                authFailedNetworkId = info == null ? -1 : info.getNetworkId();
                 authFailed = true;
             }
         }
@@ -75,9 +79,9 @@ final class WifiOps {
     /**
      * Reply fields: wifiState (disabled|disabling|enabled|enabling|unknown),
      * enabled, locationPermission, connection (lowercase NetworkInfo.DetailedState),
-     * authFailed (wrong password since the last join/connectSaved), and when
-     * connected: networkId, ssid (only with location permission), rssi,
-     * signalLevel (0-4), linkMbps, ip.
+     * authFailed (wrong password since the last join/connectSaved) with
+     * authFailedNetworkId (-1 if unknown), and when connected: networkId, ssid
+     * (only with location permission), rssi, signalLevel (0-4), linkMbps, ip.
      */
     JSONObject getState() {
         return putState(Replies.ok());
@@ -122,7 +126,7 @@ final class WifiOps {
             Replies.put(n, "networkId", c.networkId);
             if (ssid != null) {
                 Replies.put(n, "ssid", ssid);
-                Integer level = levels.get(ssid);
+                Integer level = levels.get(networkKey(ssid, security(c)));
                 if (level != null) {
                     Replies.put(n, "signalLevel", level);
                 }
@@ -156,7 +160,7 @@ final class WifiOps {
         }
         // disableOthers=true is the "user picked this network" path; on API 27 it does
         // not permanently disable the other saved networks.
-        authFailed = false;
+        resetAuthFailure();
         boolean accepted = wifi.enableNetwork(networkId, true) && wifi.reconnect();
         return putState(accepted ? Replies.ok() : Replies.error("request_rejected"));
     }
@@ -175,10 +179,15 @@ final class WifiOps {
     }
 
     /**
-     * Visible networks, one entry per SSID (strongest access point), as "networks":
-     * [{ssid, signalLevel (0-4), security (open|wpa_psk|sae|owe|eap|wep), current,
-     * savedNetworkId (if saved)}]. Hidden SSIDs are left out. "fresh" is true once
-     * results newer than the last scan request have arrived.
+     * Visible networks, one entry per SSID and security type (strongest access
+     * point), as "networks": [{ssid, signalLevel (0-4), security
+     * (open|wpa_psk|sae|owe|eap|wep), current, savedNetworkId (if a saved network
+     * has the same SSID *and* security)}]. Hidden SSIDs are left out. "fresh" is
+     * true once results newer than the last scan request have arrived.
+     *
+     * Matching on security as well as SSID matters: an open network sharing the
+     * name of a saved WPA one (or vice versa) must not be treated as saved, or
+     * choosing it would connect the other profile, e.g. an unintended open network.
      */
     @SuppressLint("MissingPermission") // see listSaved
     JSONObject scanResults() {
@@ -188,37 +197,31 @@ final class WifiOps {
         if (!wifi.isWifiEnabled()) {
             return putState(Replies.error("wifi_disabled"));
         }
-        Map<String, ScanResult> best = new HashMap<>();
-        long newestMs = 0;
         List<ScanResult> results = wifi.getScanResults();
+        long newestMs = 0;
         if (results != null) {
             for (ScanResult r : results) {
                 // ScanResult.timestamp is microseconds since boot.
                 newestMs = Math.max(newestMs, r.timestamp / 1000);
-                if (r.SSID == null || r.SSID.isEmpty()) {
-                    continue;
-                }
-                ScanResult prev = best.get(r.SSID);
-                if (prev == null || r.level > prev.level) {
-                    best.put(r.SSID, r);
-                }
             }
         }
-        Map<String, Integer> saved = savedIdsBySsid();
-        String currentSsid = null;
+        Map<String, ScanResult> best = bestByNetwork(results);
+        Map<String, Integer> saved = savedIdsByNetwork();
+        int currentId = -1;
         NetworkInfo net = connectivity.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
         if (net != null && net.isConnected()) {
-            currentSsid = ssidOf(wifi.getConnectionInfo());
+            currentId = wifi.getConnectionInfo().getNetworkId();
         }
 
         JSONArray networks = new JSONArray();
         for (ScanResult r : best.values()) {
             JSONObject n = new JSONObject();
+            String security = scanSecurity(r.capabilities);
+            Integer savedId = saved.get(networkKey(r.SSID, security));
             Replies.put(n, "ssid", r.SSID);
             Replies.put(n, "signalLevel", WifiManager.calculateSignalLevel(r.level, SIGNAL_LEVELS));
-            Replies.put(n, "security", scanSecurity(r.capabilities));
-            Replies.put(n, "current", r.SSID.equals(currentSsid));
-            Integer savedId = saved.get(r.SSID);
+            Replies.put(n, "security", security);
+            Replies.put(n, "current", savedId != null && savedId == currentId);
             if (savedId != null) {
                 Replies.put(n, "savedNetworkId", savedId);
             }
@@ -232,9 +235,9 @@ final class WifiOps {
 
     /**
      * Saves and connects to a new network. Extras: ssid, security (open|wpa_psk),
-     * password (wpa_psk only). Refuses SSIDs that are already saved
-     * ("already_saved" with savedNetworkId), so a mistyped password can never
-     * replace a working one. Returns the new network as createdNetworkId (not
+     * password (wpa_psk only). Refuses networks already saved with the same SSID
+     * and security ("already_saved" with savedNetworkId), so a mistyped password
+     * can never replace a working one. Returns the new network as createdNetworkId (not
      * networkId, which putState sets to the *current* connection); callers poll
      * getState and should forget() it if the connection fails.
      */
@@ -247,7 +250,7 @@ final class WifiOps {
         if (!wifi.isWifiEnabled()) {
             return putState(Replies.error("wifi_disabled"));
         }
-        Integer existing = savedIdsBySsid().get(ssid);
+        Integer existing = savedIdsByNetwork().get(networkKey(ssid, security));
         if (existing != null) {
             return Replies.put(Replies.error("already_saved"), "savedNetworkId", existing);
         }
@@ -273,7 +276,7 @@ final class WifiOps {
             return putState(Replies.error("request_rejected"));
         }
         createdIds.add(networkId);
-        authFailed = false;
+        resetAuthFailure();
         boolean accepted = wifi.enableNetwork(networkId, true) && wifi.reconnect();
         JSONObject reply = accepted ? Replies.ok() : Replies.error("request_rejected");
         Replies.put(reply, "createdNetworkId", networkId);
@@ -322,6 +325,9 @@ final class WifiOps {
         Replies.put(reply, "enabled", state == WifiManager.WIFI_STATE_ENABLED);
         Replies.put(reply, "locationPermission", hasLocationPermission());
         Replies.put(reply, "authFailed", authFailed);
+        if (authFailed) {
+            Replies.put(reply, "authFailedNetworkId", authFailedNetworkId);
+        }
 
         NetworkInfo net = connectivity.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
         Replies.put(reply, "connection",
@@ -348,26 +354,28 @@ final class WifiOps {
                 == PackageManager.PERMISSION_GRANTED;
     }
 
-    // See listSaved.
-    @SuppressLint("MissingPermission")
-    private Map<String, Integer> savedIdsBySsid() {
+    // Saved network IDs by networkKey(SSID, security).
+    @SuppressLint("MissingPermission") // see listSaved
+    private Map<String, Integer> savedIdsByNetwork() {
         Map<String, Integer> ids = new HashMap<>();
         List<WifiConfiguration> configs = wifi.getConfiguredNetworks();
         if (configs != null) {
             for (WifiConfiguration c : configs) {
                 String ssid = unquote(c.SSID);
                 if (ssid != null) {
-                    ids.put(ssid, c.networkId);
+                    ids.put(networkKey(ssid, security(c)), c.networkId);
                 }
             }
         }
         return ids;
     }
 
-    // Lint applies newer-API rules (ACCESS_FINE_LOCATION). On API 27, saved networks
-    // need no location permission and scan results need only coarse location, which
-    // scanLevels checks first (both verified on the Nook in Stage 0).
-    @SuppressLint("MissingPermission")
+    // Identifies a network the way Android's configKey does: SSID plus security.
+    private static String networkKey(String ssid, String security) {
+        return ssid + "\u0000" + security;
+    }
+
+    @SuppressLint("MissingPermission") // see listSaved
     private boolean isSaved(int networkId) {
         List<WifiConfiguration> configs = wifi.getConfiguredNetworks();
         if (configs != null) {
@@ -380,28 +388,39 @@ final class WifiOps {
         return false;
     }
 
-    // Strongest signal level per SSID from the last scan. Needs location permission:
-    // without it, API 27 returns an empty list (verified in Stage 0).
-    // Lint applies newer-API rules (ACCESS_FINE_LOCATION). On API 27, saved networks
-    // need no location permission and scan results need only coarse location, which
-    // scanLevels checks first (both verified on the Nook in Stage 0).
-    @SuppressLint("MissingPermission")
+    // Strongest signal level per networkKey from the last scan. Needs location
+    // permission: without it, API 27 returns an empty list (verified in Stage 0).
+    @SuppressLint("MissingPermission") // see listSaved
     private Map<String, Integer> scanLevels() {
         Map<String, Integer> levels = new HashMap<>();
-        List<ScanResult> results = wifi.getScanResults();
+        for (Map.Entry<String, ScanResult> e : bestByNetwork(wifi.getScanResults()).entrySet()) {
+            levels.put(e.getKey(), WifiManager.calculateSignalLevel(e.getValue().level, SIGNAL_LEVELS));
+        }
+        return levels;
+    }
+
+    // The strongest access point for each visible networkKey (SSID plus security);
+    // hidden SSIDs are left out.
+    private static Map<String, ScanResult> bestByNetwork(List<ScanResult> results) {
+        Map<String, ScanResult> best = new HashMap<>();
         if (results != null) {
             for (ScanResult r : results) {
                 if (r.SSID == null || r.SSID.isEmpty()) {
                     continue;
                 }
-                int level = WifiManager.calculateSignalLevel(r.level, SIGNAL_LEVELS);
-                Integer best = levels.get(r.SSID);
-                if (best == null || level > best) {
-                    levels.put(r.SSID, level);
+                String key = networkKey(r.SSID, scanSecurity(r.capabilities));
+                ScanResult prev = best.get(key);
+                if (prev == null || r.level > prev.level) {
+                    best.put(key, r);
                 }
             }
         }
-        return levels;
+        return best;
+    }
+
+    private void resetAuthFailure() {
+        authFailed = false;
+        authFailedNetworkId = -1;
     }
 
     // Without location permission, API 27 reports "<unknown ssid>" (verified in Stage 0).

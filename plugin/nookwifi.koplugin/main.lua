@@ -30,10 +30,14 @@ local STATE_TIMEOUT_S = 20
 local CONNECT_TIMEOUT_S = 20
 -- A scan took about 1 s on the Nook; past this, show whatever results are cached.
 local SCAN_TIMEOUT_S = 10
+-- How long a connection to some other network must last before awaitNetwork
+-- calls it a fallback. Right after Wi-Fi turns on, Android may autojoin another
+-- saved network briefly before switching to the requested one.
+local FALLBACK_GRACE_S = 4
 -- Menu text and checkbox funcs run together on each redraw; reuse one reply.
 local STATE_CACHE_S = 1
 
-local PLUGIN_VERSION = "1.0.0"
+local PLUGIN_VERSION = "1.0.1"
 local GRANT_COMMAND = "adb shell pm grant dev.nookwifi.helper android.permission.ACCESS_COARSE_LOCATION"
 
 -- How to grant the helper's location permission: its setup screen, or ADB.
@@ -371,23 +375,30 @@ end
 function NookWifi:awaitNetwork(finish, fail, network_id, name)
     -- If the network is unreachable or rejects the password, Android drops the
     -- current connection and falls back to another saved network within seconds
-    -- (seen on the Nook). Report that as soon as it happens instead of waiting
-    -- out the timeout.
+    -- (seen on the Nook). Report that once the other connection has lasted
+    -- FALLBACK_GRACE_S, instead of waiting out the whole timeout.
     local dropped = false
-    self:pollState(CONNECT_TIMEOUT_S, finish, function(s)
-        if s.authFailed then
+    local elsewhere_since
+    -- Helper errors go to fail too, so join still removes the network it created.
+    self:pollState(CONNECT_TIMEOUT_S, fail, function(s)
+        -- authFailedNetworkId is -1 when Android had already cleared the network;
+        -- only a failure known to be for another network is ignored.
+        local failed_id = s.authFailedNetworkId
+        if s.authFailed and (failed_id == nil or failed_id < 0 or failed_id == network_id) then
             fail(T(_("Wrong password for %1."), name), "auth")
             return true
         end
         if s.connection ~= "connected" then
-            dropped = true
+            dropped, elsewhere_since = true, nil
             return false
         end
         if s.networkId == network_id then
             finish(T(_("Connected to %1."), name), "NetworkConnected")
             return true
         end
-        if dropped then
+        if not dropped then return false end
+        elsewhere_since = elsewhere_since or time.now()
+        if time.to_s(time.since(elsewhere_since)) >= FALLBACK_GRACE_S then
             fail(T(_("Could not connect to %1. %2 instead."), name, connectedText(s)))
             return true
         end
@@ -440,19 +451,22 @@ function NookWifi:reconnect(touchmenu_instance)
     self:waitForConnection(finish)
 end
 
+-- Connects to a saved network inside an operation that is already running.
+function NookWifi:connectSavedStep(finish, network_id, name)
+    local reply, err = Helper.call("connectSaved", tostring(network_id))
+    if not reply or not reply.ok then return finish(errorText(reply, err)) end
+    self:awaitNetwork(finish, function(text, reason)
+        if reason ~= "auth" then return finish(text) end
+        finish()
+        showRemoveInSettings(name, T(_("The saved password for %1 does not work."), name))
+    end, network_id, name)
+end
+
 function NookWifi:connectSaved(net, touchmenu_instance)
     if self.busy then return end
     local name = net.ssid or _("(hidden network)")
     local finish = self:beginOperation(T(_("Connecting to %1…"), name), touchmenu_instance)
-    self:ensureEnabled(finish, function()
-        local reply, err = Helper.call("connectSaved", tostring(net.networkId))
-        if not reply or not reply.ok then return finish(errorText(reply, err)) end
-        self:awaitNetwork(finish, function(text, reason)
-            if reason ~= "auth" then return finish(text) end
-            finish()
-            showRemoveInSettings(name, T(_("The saved password for %1 does not work."), name))
-        end, net.networkId, name)
-    end)
+    self:ensureEnabled(finish, function() self:connectSavedStep(finish, net.networkId, name) end)
 end
 
 -- Scanning and joining -------------------------------------------------------
@@ -537,7 +551,11 @@ function NookWifi:showScanResults(results, touchmenu_instance)
 end
 
 function NookWifi:chooseScanned(net, touchmenu_instance)
-    if net.current then
+    -- The live state, not net.current: that flag is from when the list was built.
+    local state = self:getState(true)
+    local connected_here = state and state.connection == "connected"
+        and net.savedNetworkId ~= nil and state.networkId == net.savedNetworkId
+    if connected_here then
         UIManager:show(InfoMessage:new{ text = T(_("Already connected to %1."), net.ssid), timeout = 3 })
     elseif net.savedNetworkId then
         self:connectSaved({ networkId = net.savedNetworkId, ssid = net.ssid }, touchmenu_instance)
@@ -629,9 +647,7 @@ function NookWifi:join(net, password, touchmenu_instance)
         password = nil -- luacheck: ignore 311
         if reply and reply.error == "already_saved" then
             -- Saved meanwhile (e.g. from Android settings): use it, never overwrite it.
-            local r, e = Helper.call("connectSaved", tostring(reply.savedNetworkId))
-            if not r or not r.ok then return finish(errorText(r, e)) end
-            return self:awaitNetwork(finish, finish, reply.savedNetworkId, net.ssid)
+            return self:connectSavedStep(finish, reply.savedNetworkId, net.ssid)
         end
         local function cleanUp(network_id, text)
             local forgot = Helper.call("forget", tostring(network_id))

@@ -147,6 +147,7 @@ local function stateReply()
         locationPermission = wifi.locationPermission,
         connection = wifi.enabled and wifi.connection or "disconnected",
         authFailed = wifi.auth_failed,
+        authFailedNetworkId = wifi.auth_failed and wifi.auth_failed_id or nil,
     }
     if s.connection == "connected" then
         s.networkId, s.rssi, s.signalLevel, s.linkMbps, s.ip = wifi.networkId, -50, 4, 72, "10.0.0.2"
@@ -161,11 +162,17 @@ package.preload["nookwifihelper"] = function()
         call = function(method, arg, extras)
             if helper_missing then return nil, "helper_not_installed" end
             if method == "getState" then
+                if wifi.getstate_fail then return nil, "jni_error" end
                 polls = polls + 1
                 if on_poll then on_poll(polls) end
                 return stateReply()
             elseif method == "setEnabled" then
-                wifi.enabled = arg == "true"
+                if wifi.set_enabled_rejected then
+                    local r = stateReply()
+                    r.ok, r.error = false, "request_rejected"
+                    return r
+                end
+                if not (wifi.ignore_off and arg == "false") then wifi.enabled = arg == "true" end
                 return stateReply()
             elseif method == "listSaved" then
                 return { ok = true, protocol = 1, networks = wifi.saved, scanAvailable = wifi.scanAvailable }
@@ -187,6 +194,9 @@ package.preload["nookwifihelper"] = function()
                 return { ok = true, protocol = 1, networks = wifi.visible, fresh = polls >= 0 }
             elseif method == "join" then
                 wifi.join_args = extras
+                if wifi.join_already_saved then
+                    return { ok = false, error = "already_saved", savedNetworkId = wifi.join_already_saved, protocol = 1 }
+                end
                 local id = 10
                 local start = polls -- simulate relative to this call, not the test start
                 -- Simulated Android: the right password connects, a wrong one fails auth.
@@ -567,6 +577,108 @@ test("saved networks offer no forget action", function()
     for _, item in ipairs(savedMenuOf(items)) do
         eq(item.hold_callback, nil, "hold_callback")
     end
+end)
+
+-- Fixes from the 1.0.0 code review ------------------------------------------
+
+test("join of a network saved meanwhile with a wrong password points to settings", function()
+    wifi.join_already_saved = 0 -- Cafe
+    wifi.stored_password_wrong = true
+    local plugin = newPlugin()
+    pressConnect(passwordDialogFor(plugin, "Neighbor", "correct horse"))
+    runScheduled()
+    local box = shown[#shown]
+    assert(box.ok_callback and box.text:find("saved password", 1, true), "no Android settings prompt")
+    assert(not has(events, "auth"), "broadcast a bogus 'auth' event")
+end)
+
+test("brief autojoin to another network after turning Wi-Fi on is not a failure", function()
+    wifi.enabled = false
+    local plugin = newPlugin()
+    wifi.connection = "disconnected"
+    on_poll = function(n)
+        -- Wi-Fi comes up, Android autojoins Home (1) first, then switches to Cafe (0).
+        if n == 4 then wifi.connection, wifi.networkId, wifi.ssid = "connected", 1, "Home" end
+        if n == 6 then wifi.connection = "disconnected" end
+        if n == 7 then wifi.connection, wifi.networkId, wifi.ssid = "connected", 0, "Cafe" end
+    end
+    plugin:connectSaved(wifi.saved[1])
+    runScheduled()
+    eq(lastMessage(), "Connected to Cafe.", "message")
+end)
+
+test("auth failure on another network is not blamed on the one being joined", function()
+    local plugin = newPlugin()
+    pressConnect(passwordDialogFor(plugin, "Neighbor", "correct horse"))
+    -- Android briefly tried saved network 1 and its stored password failed.
+    wifi.auth_failed, wifi.auth_failed_id = true, 1
+    runScheduled()
+    eq(lastMessage(), "Connected to Neighbor.", "message")
+    eq(#wifi.forgotten, 0, "forgot a network that joined fine")
+end)
+
+test("auth failure with unknown network id is still reported", function()
+    local plugin = newPlugin()
+    pressConnect(passwordDialogFor(plugin, "Neighbor", "wrong password"))
+    wifi.auth_failed_id = -1
+    runScheduled()
+    eq(lastMessage(), "Wrong password for Neighbor.", "message")
+end)
+
+test("hook: rejected turn-off falls back to stock instead of reporting off", function()
+    Network.install()
+    wifi.set_enabled_rejected = true
+    local called = false
+    NM:turnOffWifi(function() called = true end)
+    runScheduled()
+    assert(has(stock_calls, "turnOffWifi"), "no stock fallback")
+    eq(called, false, "reported Wi-Fi off while it is on")
+end)
+
+-- Fixes from Codex's review ---------------------------------------------------
+
+test("hook: Wi-Fi still on after the timeout is not reported as off", function()
+    Network.install()
+    wifi.ignore_off = true -- accepted, but the radio stays on
+    local called = false
+    NM:turnOffWifi(function() called = true end)
+    runScheduled()
+    eq(called, false, "reported Wi-Fi off while it is on")
+end)
+
+test("hook: helper lost while turning off falls back to stock", function()
+    Network.install()
+    wifi.ignore_off = true
+    on_poll = function() end
+    local called = false
+    NM:turnOffWifi(function() called = true end)
+    wifi.getstate_fail = true
+    runScheduled()
+    assert(has(stock_calls, "turnOffWifi"), "no stock fallback")
+    eq(called, false, "reported Wi-Fi off")
+end)
+
+test("helper error while waiting after join still removes the new network", function()
+    local plugin = newPlugin()
+    pressConnect(passwordDialogFor(plugin, "Neighbor", "wrong password"))
+    wifi.getstate_fail = true -- helper stops answering getState after join
+    runScheduled()
+    eq(wifi.forgotten[1], 10, "created network not removed")
+    eq(plugin.busy, false, "busy")
+end)
+
+test("scan row uses the live connection, not the flag from scan time", function()
+    local plugin = newPlugin()
+    local menu = scanAndGetMenu(plugin)
+    -- Since the scan, the Nook moved to Cafe (0); Home's row still says current.
+    wifi.networkId, wifi.ssid = 0, "Cafe"
+    local start = polls
+    on_poll = function(n)
+        if n == start + 3 then wifi.connection, wifi.networkId, wifi.ssid = "connected", 1, "Home" end
+    end
+    itemFor(menu, "Home").callback()
+    runScheduled()
+    eq(lastMessage(), "Connected to Home.", "message")
 end)
 
 -- NetworkMgr hooks ------------------------------------------------------------

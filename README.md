@@ -61,7 +61,7 @@ If a new network's password is wrong, the plugin says so and removes the network
 
 - **Passwords:** a Wi-Fi password goes from KOReader straight to Android. The helper never logs or stores it, or sends it anywhere. The plugin does not save it in KOReader's settings.
 - **Debug logging:** KOReader's on-screen keyboard writes every key press to the system log when debug logging is on. The password dialog switches debug logging off while it is open and restores it afterwards.
-- **Who can use the helper:** the helper only accepts requests from KOReader.
+- **Who can use the helper:** the helper only accepts requests from KOReader. Anything running inside KOReader can use it, including other plugins and patches you install, so it can control Wi-Fi and read nearby network names (which can reveal roughly where you are). Only install KOReader plugins you trust.
 
 ## Update
 

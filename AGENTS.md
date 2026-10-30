@@ -57,6 +57,7 @@ Installed with Homebrew on 2026-10-30:
 - `spikes/`: Stage 0 throwaway test apps. Kept as evidence for the verified results above. They are not part of the product.
 - `scripts/nook-recon.fish`: read-only device diagnostics. Its output is gitignored because it contains network names and addresses.
 - `make build` builds the debug APK. `make check` runs Android lint, luacheck (configured in `.luacheckrc`), and the offline plugin tests in `plugin/tests/run.lua`. It does not touch the device. Run it before every install.
+- `plugin/tests/jni.lua` runs the real JNI client (`nookwifihelper.lua`) against a fake JNI. It makes every call throw in turn and fails if any further JNI call happens while an exception is pending.
 - `plugin/tests/run.lua` runs the plugin's real code against stand-ins for KOReader modules and the helper. It covers menu rendering (it evaluates every `text_func`/`checked_func`/`sub_item_table_func`), the polling flows, and the NetworkMgr hooks. Add tests there for new menu items and flows.
 - luacheck is installed for LuaJIT: `luarocks --lua-version=5.1 --lua-dir="$(brew --prefix luajit)" install --local luacheck`. The Lua 5.5 build does not run.
 - `make install` installs the helper and pushes the plugin. KOReader loads plugin code only at startup, and on Android it has **no Restart option**, so the user must **Exit** KOReader and reopen it. `make install-helper` and `make install-plugin` do one each.
@@ -163,6 +164,32 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
     - Helper info shows 1.0.0 for both
     - Wi-Fi off/on and scanning
     - the release build rejects the ADB shell
+- **Release 1.0.1: code review and security audit** (2026-10-30). Installed on the device as an update over 1.0.0; the location grant was kept.
+  - Bugs fixed, each with a test that fails on 1.0.0:
+    - `join`'s `already_saved` path passed `finish` as the failure callback, so `"auth"` was broadcast as an event name. Both paths now share `connectSavedStep`.
+    - `awaitNetwork` treated any brief connection to another network after a drop as a failure. Right after Wi-Fi turns on, Android can autojoin another saved network before switching (`enableNetwork` does not record a user choice on this firmware). A connection elsewhere must now last `FALLBACK_GRACE_S` (4 s).
+    - `authFailed` was not tied to a network. The helper now records `authFailedNetworkId` (from `WifiInfo` when the broadcast arrives), and the plugin ignores failures known to be for another network; -1 means unknown and still counts.
+    - The `turnOffWifi` hook kept polling after a rejection and then reported Wi-Fi off. It now falls back to stock behavior.
+    - `nookwifihelper.lua` skipped exception checks between `FindClass`, `NewObject`, `putString` and `getContentResolver`. It now checks after every JNI call (`tests/jni.lua`).
+    - `HelperProvider.call` called `getCallingPackage()` outside its `try`, so a `SecurityException` could escape. It now maps to `caller_not_allowed`.
+    - `SetupActivity` had no way out after "Don't ask again". The button now opens the app's Android settings page.
+  - Declined from the review:
+    - Routing the plugin's own toggle through NetworkMgr: the plugin's version reports real results, and the skipped bookkeeping (`wifi_was_on`) only matters for auto-restore, which Android does not have.
+    - Avoiding the two helper calls at startup: about 16 ms warm, at most about 100 ms cold.
+  - Security audit results:
+    - The provider's allowlist relies on Android verifying `getCallingPackage()` against the UID; the other provider methods are no-ops; the shell exception exists only in debug builds.
+    - `SUPPLICANT_STATE_CHANGED` is a protected broadcast. Passwords travel only in extras and are never logged.
+    - Scanned SSIDs are displayed safely: KOReader's `T()` does not re-expand inserted text.
+    - The helper has no dependencies, and the release key is outside the repo.
+    - `gradle-wrapper.properties` now pins `distributionSha256Sum`, and the committed `gradle-wrapper.jar` matches Gradle's published checksum.
+  - Fixed after Codex's review of the same tree:
+    - The `turnOffWifi` hook still ran NetworkMgr's callback (broadcasting `NetworkDisconnected`) after a polling error or the 10 s timeout. It now runs it only once Wi-Fi reports disabled. A lost helper falls back to stock behavior, and a timeout just calls `queryNetworkState()`.
+    - `awaitNetwork` sent polling errors to `finish`, bypassing `join`'s cleanup of the network it created. They now go to `fail`.
+    - **Security:** scan results and saved networks were matched by SSID only. With an open and a WPA network of the same name nearby, choosing the WPA row could connect the saved *open* profile (an "evil twin" risk), and `join` could report `already_saved` for the wrong profile. The helper now keys both by SSID plus security (like Android's configKey). `current` compares network IDs. This is a helper-side Java fix, verified by reading the code only: no offline test, and no same-name networks were available on the device.
+    - The scan list's "Already connected" check used the flag from scan time; it now checks the live connection. In real KOReader the list closes on selection, so this was mostly theoretical.
+  - Accepted risks, documented in the README:
+    - Anything running inside KOReader (other plugins, patches) can use the helper, including reading nearby SSIDs, which can reveal roughly where the user is.
+    - If KOReader were uninstalled, another app could take its package name. Pinning KOReader's signature would block that but break nightly and F-Droid builds, which use different keys.
 - **Next (optional, user's choice):** the minimal Home launcher described under Scope boundaries. The user agreed to do it after Stage 6. It must be a separate APK, needs the user's explicit go-ahead before it is made the default launcher, a tested way back to Olauncher, and a guard against relaunch loops if KOReader crashes or is missing. It can be signed with the same release key.
 
 Complete useful implementation work autonomously. Ask the user for device checks or decisions only when needed. Do not claim device behavior is verified until it has actually been tested.

@@ -2,8 +2,11 @@ package dev.nookwifi.helper;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -19,8 +22,13 @@ import android.widget.TextView;
 public class SetupActivity extends Activity {
     private static final int REQUEST_LOCATION = 1;
 
+    private static final String PERMISSION = Manifest.permission.ACCESS_COARSE_LOCATION;
+
     private TextView status;
     private Button allow;
+    // After "Don't ask again", requestPermissions returns at once without a dialog,
+    // so the button opens the app's Android settings page instead.
+    private boolean blocked;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -48,7 +56,12 @@ public class SetupActivity extends Activity {
         allow.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                requestPermissions(new String[] {Manifest.permission.ACCESS_COARSE_LOCATION}, REQUEST_LOCATION);
+                if (blocked) {
+                    startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            Uri.fromParts("package", getPackageName(), null)));
+                } else {
+                    requestPermissions(new String[] {PERMISSION}, REQUEST_LOCATION);
+                }
             }
         });
         root.addView(allow, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(72)));
@@ -64,13 +77,20 @@ public class SetupActivity extends Activity {
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        boolean denied = grantResults.length == 0 || grantResults[0] != PackageManager.PERMISSION_GRANTED;
+        blocked = denied && !shouldShowRequestPermissionRationale(PERMISSION);
         refresh();
     }
 
     private void refresh() {
-        boolean granted = checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
-                == PackageManager.PERMISSION_GRANTED;
-        status.setText(granted ? R.string.setup_done : R.string.setup_needed);
+        boolean granted = checkSelfPermission(PERMISSION) == PackageManager.PERMISSION_GRANTED;
+        if (granted) {
+            blocked = false;
+            status.setText(R.string.setup_done);
+        } else {
+            status.setText(blocked ? R.string.setup_blocked : R.string.setup_needed);
+            allow.setText(blocked ? R.string.setup_open_settings : R.string.setup_allow);
+        }
         allow.setVisibility(granted ? View.GONE : View.VISIBLE);
     }
 
