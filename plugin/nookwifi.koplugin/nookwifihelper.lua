@@ -84,7 +84,7 @@ Calls a helper method.
 @tparam[opt] table extras string keys to string values, passed as a Bundle
 @treturn table|nil decoded reply (has `ok`; on failure also `error`)
 @treturn string|nil error code when the call itself failed:
-  "helper_not_installed", "bad_reply", or "jni_error"
+  "helper_not_installed", "protocol_mismatch", "bad_reply", or "jni_error"
 --]]
 function Helper.call(method, arg, extras)
     local ok, raw, err = pcall(rawCall, method, arg, extras)
@@ -103,6 +103,10 @@ function Helper.call(method, arg, extras)
     if not decoded_ok or type(reply) ~= "table" then
         logger.warn("NookWifi: bad reply to", method)
         return nil, "bad_reply"
+    end
+    if reply.protocol ~= Helper.PROTOCOL then
+        logger.warn("NookWifi: helper protocol", reply.protocol, "expected", Helper.PROTOCOL)
+        return nil, "protocol_mismatch"
     end
     return reply
 end

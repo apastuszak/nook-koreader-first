@@ -79,6 +79,18 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
 4. Add scanning, network selection, and password entry for joining networks. Implement common personal networks first; explicitly handle unsupported security types.
 5. Package the plugin and a signed, installable helper APK with concise setup, update, and removal instructions.
 
+### Progress
+
+- **Stage 0: done, verified on device** (see Confirmed environment).
+- **Stage 1: done, verified on device** (2026-10-30). The repo, build, Makefile and helper `ping` work. The plugin's "Helper info" reaches the helper from KOReader.
+- **Stage 2: done, verified on device** (2026-10-30, helper 0.2.0):
+  - Helper methods: `getState` and `setEnabled` (arg `"true"`/`"false"`).
+  - The plugin menu (Settings → Network → Nook Wi-Fi) has a status line (tap for details), a Wi-Fi checkbox, a shortcut to Android Wi-Fi settings, and Helper info.
+  - The toggle polls `getState` every 0.5 s. It reports success only once Wi-Fi reaches the target state, and when turning on, only once it connects (20 s timeout for each step).
+  - Verified in KOReader: status and details without location permission (network name shown as "(name hidden)", plus grant instructions); Wi-Fi off; Wi-Fi on with automatic reconnect; network name shown after `make grant-location`; "not installed" message after uninstalling the helper, with no crash; correct state after restarting KOReader.
+  - Uninstalling the helper drops the location grant, so run `make grant-location` again after reinstalling.
+  - Not yet built: a way to grant location without ADB (for example, a small helper activity that requests it), and permission-denial handling beyond the instructions message.
+
 Complete useful implementation work autonomously. Ask the user for device checks or decisions only when needed. Do not claim device behavior is verified until it has actually been tested.
 
 ## Android considerations

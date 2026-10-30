@@ -11,7 +11,6 @@ import android.os.Binder;
 import android.os.Bundle;
 import android.util.Log;
 
-import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.Arrays;
@@ -25,6 +24,8 @@ import java.util.Set;
  * and gets back a Bundle holding one "json" string. Every reply has "ok" and
  * "protocol"; failures also carry an "error" code. call() never throws, so the
  * plugin sees a Java exception only when the helper is missing.
+ *
+ * Methods: ping, getState, setEnabled(arg "true"|"false"). See WifiOps for fields.
  */
 public class HelperProvider extends ContentProvider {
     static final String TAG = "NookWifi";
@@ -37,8 +38,11 @@ public class HelperProvider extends ContentProvider {
     // (Process.SHELL_UID, hidden before API 29).
     private static final int SHELL_UID = 2000;
 
+    private WifiOps wifi;
+
     @Override
     public boolean onCreate() {
+        wifi = new WifiOps(getContext());
         return true;
     }
 
@@ -50,40 +54,40 @@ public class HelperProvider extends ContentProvider {
         JSONObject reply;
         try {
             if (!isAllowed(caller)) {
-                reply = error("caller_not_allowed");
+                reply = Replies.error("caller_not_allowed");
             } else {
-                reply = dispatch(method);
+                reply = dispatch(method, arg);
             }
-        } catch (RuntimeException | JSONException e) {
+        } catch (RuntimeException e) {
             Log.e(TAG, "call " + method + " failed", e);
-            reply = error("internal_error");
+            reply = Replies.error("internal_error");
         }
-        try {
-            reply.put("protocol", PROTOCOL);
-        } catch (JSONException e) {
-            throw new IllegalStateException(e);
-        }
+        Replies.put(reply, "protocol", PROTOCOL);
         Bundle out = new Bundle();
         out.putString("json", reply.toString());
         return out;
     }
 
-    private JSONObject dispatch(String method) throws JSONException {
+    private JSONObject dispatch(String method, String arg) {
         switch (method) {
             case "ping":
                 return ping();
+            case "getState":
+                return wifi.getState();
+            case "setEnabled":
+                return wifi.setEnabled(arg);
             default:
-                return error("unknown_method");
+                return Replies.error("unknown_method");
         }
     }
 
-    private JSONObject ping() throws JSONException {
-        JSONObject reply = ok();
+    private JSONObject ping() {
+        JSONObject reply = Replies.ok();
         try {
             PackageInfo info = getContext().getPackageManager()
                     .getPackageInfo(getContext().getPackageName(), 0);
-            reply.put("versionName", info.versionName);
-            reply.put("versionCode", info.versionCode);
+            Replies.put(reply, "versionName", info.versionName);
+            Replies.put(reply, "versionCode", info.versionCode);
         } catch (PackageManager.NameNotFoundException e) {
             throw new IllegalStateException(e);
         }
@@ -96,18 +100,6 @@ public class HelperProvider extends ContentProvider {
         }
         boolean debuggable = (getContext().getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
         return debuggable && Binder.getCallingUid() == SHELL_UID;
-    }
-
-    private static JSONObject ok() throws JSONException {
-        return new JSONObject().put("ok", true);
-    }
-
-    private static JSONObject error(String code) {
-        try {
-            return new JSONObject().put("ok", false).put("error", code);
-        } catch (JSONException e) {
-            throw new IllegalStateException(e);
-        }
     }
 
     // Unused ContentProvider surface.
