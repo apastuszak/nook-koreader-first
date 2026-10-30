@@ -230,7 +230,24 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
   - The fake helper in `plugin/tests/run.lua` can replay scripted `wifiState` sequences (`wifi.state_script`), e.g. the Nook's stale `disabled` for about 1 s after a turn-on request. Progress tests assert that the progress widget is closed.
   - Test cleanups: a redundant `testOptions` block was removed; `String.repeat` replaces a hand-written helper.
   - Security pass over the whole codebase: nothing new. The only changes since the 1.0.4 audit add no exposed surface: private SharedPreferences records of network keys and times (no passwords, backups off), the boot-count read, and the progress message.
-- **Next (optional, user's choice):** the minimal Home launcher described under Scope boundaries. The user agreed to do it after Stage 6. It must be a separate APK, needs the user's explicit go-ahead before it is made the default launcher, a tested way back to Olauncher, and a guard against relaunch loops if KOReader crashes or is missing. It can be signed with the same release key.
+- **Next: minimal KOReader Home launcher** (the user agreed on 2026-10-30; not started yet). Decisions so far:
+  - **Write our own; do not fork AnyLauncher** (github.com/tumuyan/AnyLauncher). It has no license, so its code may not be modified or redistributed. Its build is also obsolete (AGP 3.2, support-v4 25, Glide 3.8), and it requests internet and storage permissions we do not need. Borrowing ideas is fine.
+  - Build it as a **separate APK** in a new `launcher/` Gradle project, set up like `helper/`: plain Java, no runtime dependencies, minSdk/targetSdk 27, `android.builtInKotlin=false`, JUnit for pure logic. Package `dev.nookwifi.launcher` (confirm the name with the user). Sign it with the **same release key** and add `make` targets alongside the helper's.
+  - Behavior:
+    - A HOME activity that, when Home is pressed, launches KOReader (`org.koreader.launcher`) and finishes.
+    - **Escape route:** pressing Home 3 times within about 1.5 s opens a fallback screen (idea borrowed from AnyLauncher) with buttons for Olauncher/Android's launcher chooser, Android Settings, and an app list. A launcher icon (LAUNCHER category activity) also opens this screen.
+    - **Loop guard:** if KOReader is missing, or the launcher has relaunched it several times within a short window (e.g. 3 times in 10 s, meaning KOReader keeps crashing), show the fallback screen instead of relaunching. Put the counting logic in a pure class with JUnit tests.
+    - E-ink friendly: plain black-on-white layout like `SetupActivity`, no animations.
+  - **Safety, required before changing the default launcher:** the user's explicit go-ahead at that moment, plus a tested way back to Olauncher.
+    - Over ADB: `adb shell cmd package set-home-activity app.olauncher/.MainActivity`, or `adb uninstall` of the launcher.
+    - On the device: the triple-Home fallback screen.
+    - Test both before relying on it. Never disable or remove the stock Nook launcher or Olauncher.
+  - Suggested order:
+    1. Scaffold `launcher/` and build it.
+    2. Install it without making it the default, and test it by launching its activity over ADB.
+    3. Test the loop guard and fallback screen.
+    4. With the user's go-ahead, set it as the default and test Home, triple-Home, and the way back.
+    5. Package it in `make dist`; document it in the README.
 
 Complete useful implementation work autonomously. Ask the user for device checks or decisions only when needed. Do not claim device behavior is verified until it has actually been tested.
 
