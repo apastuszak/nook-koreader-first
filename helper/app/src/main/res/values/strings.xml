@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Nook Wi-Fi Helper</string>
+    <string name="setup_title">Nook Wi-Fi Helper</string>
+    <string name="setup_body">This app lets the Nook Wi-Fi plugin in KOReader turn Wi-Fi on and off and join networks. You do not need to open it again after setup.\n\nAndroid only shows Wi-Fi network names to apps with location access. The helper never uses your location.</string>
+    <string name="setup_needed">Location access is needed for scanning and network names.</string>
+    <string name="setup_done">All set. You can close this app and use Nook Wi-Fi in KOReader under Settings → Network.</string>
+    <string name="setup_allow">Allow location access</string>
+</resources>

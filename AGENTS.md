@@ -50,7 +50,9 @@ Installed with Homebrew on 2026-10-30:
 
 ## Repository layout and commands
 
-- `helper/`: the companion APK. A Gradle project (AGP 9.5.0, Gradle wrapper 9.8.2) in plain Java with no third-party dependencies. Package and authority: `dev.nookwifi.helper`. `minSdk` and `targetSdk` are 27, `compileSdk` is 35. The single entry point is `HelperProvider.call()`.
+- `helper/`: the companion APK. A Gradle project (AGP 9.5.0, Gradle wrapper 9.8.2) in plain Java with no third-party dependencies. Package and authority: `dev.nookwifi.helper`. `minSdk` and `targetSdk` are 27, `compileSdk` is 35.
+  - The plugin's single entry point is `HelperProvider.call()`. `SetupActivity` (the launcher icon) exists only to request the location permission.
+  - `helper/gradle.properties` sets `android.builtInKotlin=false`. Otherwise AGP 9 adds `kotlin-stdlib` and the APK grows from about 17 KB to about 650 KB. Keep the helper free of dependencies.
 - `plugin/nookwifi.koplugin/`: the KOReader plugin. `nookwifihelper.lua` is the JNI client, and `main.lua` adds the menu under Settings → Network. It is named `nookwifi`, not `wifi`, to avoid clashing with a future built-in plugin.
 - `spikes/`: Stage 0 throwaway test apps. Kept as evidence for the verified results above. They are not part of the product.
 - `scripts/nook-recon.fish`: read-only device diagnostics. Its output is gitignored because it contains network names and addresses.
@@ -60,7 +62,10 @@ Installed with Homebrew on 2026-10-30:
 - `make install` installs the helper and pushes the plugin. KOReader loads plugin code only at startup, and on Android it has **no Restart option**, so the user must **Exit** KOReader and reopen it. `make install-helper` and `make install-plugin` do one each.
 - `make ping` calls the helper over ADB. `make logs` follows `NookWifi` log lines. `make grant-location` runs the one-time `pm grant`. `make uninstall` removes both.
 - Debug builds of the helper also accept the ADB shell (UID 2000) as a caller, so `adb shell content call --uri content://dev.nookwifi.helper --method <m> [--arg <a>]` can test helper methods without KOReader. On API 27, `content call` sends no calling package, so this check matches the UID instead. Release builds accept only the allowlist.
-- Release signing reads `helper/keystore.properties` (gitignored). No release key exists yet; create it in Stage 6. Debug and release signatures differ, so switching from one to the other requires uninstalling the helper first.
+- Release signing: the key is `~/.android/nookwifi-release.jks` (alias `nookwifi`, RSA 4096, valid until 2054, certificate SHA-256 `86:F2:C3:6F:…:BA:24:15`). It is deliberately kept outside the repo. `helper/keystore.properties` (gitignored, mode 600) holds its path and password. **Never regenerate the key.** Every helper update must be signed with it, and the user keeps a backup. Debug and release signatures differ, so switching from one to the other requires uninstalling the helper first, which drops the location grant.
+- `make release` builds the signed APK, and `make install-release` installs it. `make dist` runs `make check`, checks that the helper `versionName`, the plugin's `PLUGIN_VERSION`, and `_meta.lua`'s `version` all agree, verifies the signature, and writes `dist/nookwifi-helper-<v>.apk`, `dist/nookwifi.koplugin-<v>.zip` and `dist/SHA256SUMS`. To release, bump all three versions together (plus `versionCode`).
+- Release builds are not debuggable, so they accept only KOReader as a caller; `make ping` returns `caller_not_allowed` against them.
+- `README.md` is for end users (install, setup, use, limitations, privacy, update, removal, troubleshooting). Keep it in sync with behavior changes. Developer detail belongs here.
 - `sdkmanager` prints a deprecation notice that recommends the new `android sdk` CLI. `sdkmanager` still works.
 
 ## Proposed architecture
@@ -91,7 +96,7 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
   - The toggle polls `getState` every 0.5 s. It reports success only once Wi-Fi reaches the target state, and when turning on, only once it connects (20 s timeout for each step).
   - Verified in KOReader: status and details without location permission (network name shown as "(name hidden)", plus grant instructions); Wi-Fi off; Wi-Fi on with automatic reconnect; network name shown after `make grant-location`; "not installed" message after uninstalling the helper, with no crash; correct state after restarting KOReader.
   - Uninstalling the helper drops the location grant, so run `make grant-location` again after reinstalling.
-  - Not yet built (carried forward): a way to grant location without ADB (for example, a small helper activity that requests it), and permission-denial handling beyond the instructions message.
+  - A way to grant location without ADB was added in Stage 6 (`SetupActivity`).
 
 - **Stage 3: done, verified on device** (2026-10-30, KOReader nightly `b44e9b7`):
   - `nookwifinetwork.lua` replaces `NetworkMgr.isWifiOn`, `turnOnWifi`, `turnOffWifi`, `getCurrentNetwork` and `getWifiMenuTable` once per session. It also sets `Device.hasSeamlessWifiToggle` to true when the helper responds.
@@ -146,6 +151,19 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
   - **Testing lessons:**
     - The fake helper in `plugin/tests/run.lua` must return replies shaped like the real helper's, including `putState`'s current-connection fields and the Nook dropping the old connection on `join`. A fake that was too simple let the `networkId` bug pass.
     - luacheck exits non-zero on warnings, so do not chain an install after `make check` with `| grep`. Check `make check`'s own exit status.
+
+- **Stage 6: done, verified on device** (2026-10-30, release 1.0.0):
+  - The release key was created, and `make dist` produces the signed APK (v2 signature scheme, not debuggable, 17 KB), the plugin zip, and checksums.
+  - `SetupActivity` is a launcher screen with an "Allow location access" button. The plugin's permission messages point to it first, with the `adb shell pm grant` command as an alternative.
+  - Helper info shows both versions.
+  - Verified on device by installing exactly the `dist/` files after uninstalling the debug helper:
+    - status without permission
+    - granting through the setup screen (readable on e-ink)
+    - network name shown afterwards
+    - Helper info shows 1.0.0 for both
+    - Wi-Fi off/on and scanning
+    - the release build rejects the ADB shell
+- **Next (optional, user's choice):** the minimal Home launcher described under Scope boundaries. The user agreed to do it after Stage 6. It must be a separate APK, needs the user's explicit go-ahead before it is made the default launcher, a tested way back to Olauncher, and a guard against relaunch loops if KOReader crashes or is missing. It can be signed with the same release key.
 
 Complete useful implementation work autonomously. Ask the user for device checks or decisions only when needed. Do not claim device behavior is verified until it has actually been tested.
 

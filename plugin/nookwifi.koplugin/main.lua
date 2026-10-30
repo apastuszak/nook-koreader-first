@@ -33,7 +33,14 @@ local SCAN_TIMEOUT_S = 10
 -- Menu text and checkbox funcs run together on each redraw; reuse one reply.
 local STATE_CACHE_S = 1
 
+local PLUGIN_VERSION = "1.0.0"
 local GRANT_COMMAND = "adb shell pm grant dev.nookwifi.helper android.permission.ACCESS_COARSE_LOCATION"
+
+-- How to grant the helper's location permission: its setup screen, or ADB.
+local function grantHowTo()
+    return T(_("Open the Nook Wi-Fi Helper app from your launcher and tap \"Allow location access\". Or, over USB:\n%1"),
+        GRANT_COMMAND)
+end
 
 local CONNECTING = {
     connecting = true,
@@ -81,7 +88,7 @@ local function errorText(reply, err)
     elseif reply.error == "unknown_method" then
         return _("Nook Wi-Fi Helper is out of date. Update it.")
     elseif reply.error == "location_permission_needed" then
-        return T(_("Scanning needs location permission for the helper. Grant it once over USB with:\n%1"), GRANT_COMMAND)
+        return _("Scanning needs location permission for the helper.") .. "\n\n" .. grantHowTo()
     elseif reply.error == "invalid_password" then
         return _("Wi-Fi passwords must be 8 to 63 characters.")
     elseif reply.error == "unsupported_security" then
@@ -209,8 +216,7 @@ function NookWifi:showDetails()
     end
     if not state.locationPermission then
         table.insert(lines, "")
-        table.insert(lines, T(_("The helper needs location permission to show network names. Grant it once over USB with:\n%1"),
-            GRANT_COMMAND))
+        table.insert(lines, _("The helper needs location permission to show network names.") .. "\n" .. grantHowTo())
     end
     UIManager:show(InfoMessage:new{ text = table.concat(lines, "\n") })
 end
@@ -221,7 +227,8 @@ function NookWifi:showHelperInfo()
     if not reply or not reply.ok then
         text = errorText(reply, err)
     else
-        text = T(_("Nook Wi-Fi Helper %1 is installed and responding."), reply.versionName)
+        text = T(_("Nook Wi-Fi Helper %1 is installed and responding.\nNook Wi-Fi plugin %2."),
+            reply.versionName, PLUGIN_VERSION)
     end
     UIManager:show(InfoMessage:new{ text = text })
 end

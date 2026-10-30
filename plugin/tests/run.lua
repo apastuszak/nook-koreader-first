@@ -437,7 +437,8 @@ end)
 test("scan without location permission explains how to grant it", function()
     wifi.locationPermission = false
     newPlugin():scanNetworks()
-    assert(lastMessage():find("pm grant", 1, true), "no grant instructions")
+    assert(lastMessage():find("pm grant", 1, true), "no ADB grant instructions")
+    assert(lastMessage():find("Allow location access", 1, true), "no setup-screen instructions")
 end)
 
 test("unsupported security is explained, not joined", function()
