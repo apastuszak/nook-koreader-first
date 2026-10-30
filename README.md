@@ -99,3 +99,9 @@ make dist      # signed release APK, plugin zip, and SHA256SUMS in dist/
 ```
 
 `make dist` needs `helper/keystore.properties`, which points at the release signing key. Neither the key nor that file is committed to the repository.
+
+## License
+
+Copyright © 2026 Andy Pastuszak.
+
+Nook Wi-Fi (the helper app and the KOReader plugin) is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, version 3 or (at your option) any later version. That is the same license KOReader uses. It is distributed WITHOUT ANY WARRANTY; see [LICENSE](LICENSE) for the full text.

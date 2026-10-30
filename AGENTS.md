@@ -50,6 +50,8 @@ Installed with Homebrew on 2026-10-30:
 
 ## Repository layout and commands
 
+- License: **AGPL-3.0-or-later**, the same as KOReader (`LICENSE`, plus a section in the README). New code in this repo, including the launcher, is under the same license. Do not copy code from projects with incompatible or missing licenses (e.g. AnyLauncher, which has none).
+
 - `helper/`: the companion APK. A Gradle project (AGP 9.5.0, Gradle wrapper 9.8.2) in plain Java with no third-party dependencies. Package and authority: `dev.nookwifi.helper`. `minSdk` and `targetSdk` are 27, `compileSdk` is 35.
   - The plugin's single entry point is `HelperProvider.call()`. `SetupActivity` (the launcher icon) exists only to request the location permission.
   - `helper/gradle.properties` sets `android.builtInKotlin=false`. Otherwise AGP 9 adds `kotlin-stdlib` and the APK grows from about 17 KB to about 650 KB. Keep the helper free of dependencies.
