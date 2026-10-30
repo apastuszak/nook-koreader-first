@@ -61,6 +61,15 @@ local function turnOnWifi(self, complete_callback, interactive)
     return true
 end
 
+-- Fallback once the helper has failed mid-way: open Android's Wi-Fi settings so
+-- the user can finish, without the callback. Stock turnOffWifi would run the
+-- callback right after opening Settings, broadcasting NetworkDisconnected while
+-- Wi-Fi may still be on (frontend/device/android/device.lua at b44e9b7).
+local function openSettingsOnly(self)
+    orig.turnOffWifi(self, nil)
+    self:queryNetworkState()
+end
+
 -- Waits for Wi-Fi to actually report disabled before running the callback,
 -- which broadcasts NetworkDisconnected and refreshes menus. The callback runs
 -- only once Wi-Fi is really off, so KOReader is never told it is off while on.
@@ -71,17 +80,15 @@ local function turnOffWifi(self, complete_callback)
         return orig.turnOffWifi(self, complete_callback)
     end
     if not reply.ok then
-        -- Polling would end in a NetworkDisconnected broadcast while Wi-Fi is still on.
-        logger.warn("NookWifi: turnOffWifi rejected, falling back to stock behavior:", reply.error)
-        return orig.turnOffWifi(self, complete_callback)
+        logger.warn("NookWifi: turnOffWifi rejected, opening Android Wi-Fi settings:", reply.error)
+        return openSettingsOnly(self)
     end
     local started = time.now()
     local function poll()
         local state = helperState()
         if not state then
-            -- The helper stopped answering mid-way; let stock behavior take over.
-            logger.warn("NookWifi: lost the helper while turning Wi-Fi off, falling back to stock behavior")
-            return orig.turnOffWifi(self, complete_callback)
+            logger.warn("NookWifi: lost the helper while turning Wi-Fi off, opening Android Wi-Fi settings")
+            return openSettingsOnly(self)
         end
         if state.wifiState == "disabled" then
             if complete_callback then complete_callback() end

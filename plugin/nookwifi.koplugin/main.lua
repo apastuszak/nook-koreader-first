@@ -34,10 +34,15 @@ local SCAN_TIMEOUT_S = 10
 -- calls it a fallback. Right after Wi-Fi turns on, Android may autojoin another
 -- saved network briefly before switching to the requested one.
 local FALLBACK_GRACE_S = 4
+-- How long an authentication failure must persist without the requested network
+-- connecting before awaitNetwork reports a wrong password. The helper keeps the
+-- flag until the next attempt, and Android may retry and succeed after a
+-- transient failure.
+local AUTH_GRACE_S = 3
 -- Menu text and checkbox funcs run together on each redraw; reuse one reply.
 local STATE_CACHE_S = 1
 
-local PLUGIN_VERSION = "1.0.1"
+local PLUGIN_VERSION = "1.0.2"
 local GRANT_COMMAND = "adb shell pm grant dev.nookwifi.helper android.permission.ACCESS_COARSE_LOCATION"
 
 -- How to grant the helper's location permission: its setup screen, or ADB.
@@ -378,23 +383,27 @@ function NookWifi:awaitNetwork(finish, fail, network_id, name)
     -- (seen on the Nook). Report that once the other connection has lasted
     -- FALLBACK_GRACE_S, instead of waiting out the whole timeout.
     local dropped = false
-    local elsewhere_since
+    local elsewhere_since, auth_failed_since
     -- Helper errors go to fail too, so join still removes the network it created.
     self:pollState(CONNECT_TIMEOUT_S, fail, function(s)
+        -- Success wins over any authentication failure recorded on the way.
+        if s.connection == "connected" and s.networkId == network_id then
+            finish(T(_("Connected to %1."), name), "NetworkConnected")
+            return true
+        end
         -- authFailedNetworkId is -1 when Android had already cleared the network;
         -- only a failure known to be for another network is ignored.
         local failed_id = s.authFailedNetworkId
         if s.authFailed and (failed_id == nil or failed_id < 0 or failed_id == network_id) then
-            fail(T(_("Wrong password for %1."), name), "auth")
-            return true
+            auth_failed_since = auth_failed_since or time.now()
+            if time.to_s(time.since(auth_failed_since)) >= AUTH_GRACE_S then
+                fail(T(_("Wrong password for %1."), name), "auth")
+                return true
+            end
         end
         if s.connection ~= "connected" then
             dropped, elsewhere_since = true, nil
             return false
-        end
-        if s.networkId == network_id then
-            finish(T(_("Connected to %1."), name), "NetworkConnected")
-            return true
         end
         if not dropped then return false end
         elsewhere_since = elsewhere_since or time.now()

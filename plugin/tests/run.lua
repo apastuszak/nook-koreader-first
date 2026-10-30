@@ -100,7 +100,11 @@ local stock_calls = {}
 local NM = {
     isWifiOn = function() table.insert(stock_calls, "isWifiOn") return "stock" end,
     turnOnWifi = function() table.insert(stock_calls, "turnOnWifi") end,
-    turnOffWifi = function() table.insert(stock_calls, "turnOffWifi") end,
+    -- Like device_android.lua: opens Settings, then runs the callback at once.
+    turnOffWifi = function(_, cb)
+        table.insert(stock_calls, "turnOffWifi")
+        if cb then cb() end
+    end,
     getCurrentNetwork = function() table.insert(stock_calls, "getCurrentNetwork") end,
     getWifiMenuTable = function() return "settings-item" end,
     getWifiToggleMenuTable = function() return "toggle-item" end,
@@ -644,6 +648,16 @@ test("hook: Wi-Fi still on after the timeout is not reported as off", function()
     NM:turnOffWifi(function() called = true end)
     runScheduled()
     eq(called, false, "reported Wi-Fi off while it is on")
+end)
+
+test("stale auth failure does not undo a successful join", function()
+    local plugin = newPlugin()
+    pressConnect(passwordDialogFor(plugin, "Neighbor", "correct horse"))
+    -- A transient auth failure is still flagged when the connection succeeds.
+    wifi.auth_failed, wifi.auth_failed_id = true, -1
+    runScheduled()
+    eq(lastMessage(), "Connected to Neighbor.", "message")
+    eq(#wifi.forgotten, 0, "removed a working network")
 end)
 
 test("hook: helper lost while turning off falls back to stock", function()
