@@ -36,7 +36,7 @@ end
 package.preload["ui/uimanager"] = function()
     return {
         show = function(_, w) table.insert(shown, w) end,
-        close = function() end,
+        close = function(_, w) if w and w.onCloseWidget then w:onCloseWidget() end end,
         scheduleIn = function(_, delay, fn, ...)
             local args = { ... }
             table.insert(queue, { delay = delay, fn = function() fn(unpack(args)) end })
@@ -64,9 +64,33 @@ package.preload["ffi/util"] = function()
         end,
     }
 end
-package.preload["logger"] = function()
-    local noop = function() end
-    return { info = noop, warn = noop, dbg = noop }
+-- Logger that records debug lines, so tests can check nothing sensitive is logged.
+local debug_lines = {}
+local logger = { levels = { dbg = 1, info = 2, warn = 3, err = 4 } }
+local function record(...) table.insert(debug_lines, table.concat({ ... }, " ")) end
+local noop = function() end
+function logger:setLevel(lvl) self.dbg = lvl <= 1 and record or noop end
+logger.info, logger.warn = noop, noop
+logger:setLevel(logger.levels.info)
+package.preload["logger"] = function() return logger end
+local dbg_state = { is_on = false }
+package.preload["dbg"] = function() return dbg_state end
+
+-- Widgets: constructors return their options; dialogs record what is shown.
+local function widgetClass()
+    local class = {}
+    class.__index = class
+    function class:new(o) return setmetatable(o, class) end
+    return class
+end
+package.preload["ui/widget/menu"] = widgetClass
+package.preload["ui/widget/confirmbox"] = widgetClass
+package.preload["ui/widget/inputdialog"] = function()
+    local InputDialog = widgetClass()
+    function InputDialog:getInputText() return self._typed or "" end
+    function InputDialog:onShowKeyboard() end
+    function InputDialog.onCloseWidget() end
+    return InputDialog
 end
 
 local device = { isAndroid = function() return true end, hasSeamlessWifiToggle = function() return false end }
@@ -100,6 +124,17 @@ local function resetWifi()
             { networkId = 2, status = "enabled", security = "wpa_psk" }, -- hidden SSID
         },
         scanAvailable = true,
+        visible = {
+            { ssid = "Home", signalLevel = 4, security = "wpa_psk", current = true, savedNetworkId = 1 },
+            { ssid = "Neighbor", signalLevel = 3, security = "wpa_psk", current = false },
+            { ssid = "Library", signalLevel = 2, security = "open", current = false },
+            { ssid = "Office", signalLevel = 3, security = "eap", current = false },
+        },
+        correct_password = "correct horse",
+        auth_failed = false,
+        forgotten = {},
+        forget_allowed = true, -- false behaves like this Nook's firmware
+        join_args = nil,
     }
     helper_missing, on_poll, polls = false, nil, 0
 end
@@ -111,6 +146,7 @@ local function stateReply()
         enabled = wifi.enabled,
         locationPermission = wifi.locationPermission,
         connection = wifi.enabled and wifi.connection or "disconnected",
+        authFailed = wifi.auth_failed,
     }
     if s.connection == "connected" then
         s.networkId, s.rssi, s.signalLevel, s.linkMbps, s.ip = wifi.networkId, -50, 4, 72, "10.0.0.2"
@@ -122,7 +158,7 @@ end
 package.preload["nookwifihelper"] = function()
     return {
         PROTOCOL = 1,
-        call = function(method, arg)
+        call = function(method, arg, extras)
             if helper_missing then return nil, "helper_not_installed" end
             if method == "getState" then
                 polls = polls + 1
@@ -135,7 +171,45 @@ package.preload["nookwifihelper"] = function()
                 return { ok = true, protocol = 1, networks = wifi.saved, scanAvailable = wifi.scanAvailable }
             elseif method == "connectSaved" or method == "reconnect" then
                 if not wifi.enabled then return { ok = false, error = "wifi_disabled", protocol = 1 } end
+                if method == "connectSaved" and wifi.stored_password_wrong then
+                    local start = polls
+                    on_poll = function(n)
+                        if n == start + 2 then wifi.connection, wifi.auth_failed = "disconnected", true end
+                    end
+                end
                 return stateReply()
+            elseif method == "scan" then
+                if not wifi.locationPermission then
+                    return { ok = false, error = "location_permission_needed", protocol = 1 }
+                end
+                return { ok = true, protocol = 1 }
+            elseif method == "scanResults" then
+                return { ok = true, protocol = 1, networks = wifi.visible, fresh = polls >= 0 }
+            elseif method == "join" then
+                wifi.join_args = extras
+                local id = 10
+                local start = polls -- simulate relative to this call, not the test start
+                -- Simulated Android: the right password connects, a wrong one fails auth.
+                if extras.security == "open" or extras.password == wifi.correct_password then
+                    on_poll = function(n)
+                        if n == start + 2 then wifi.connection, wifi.networkId, wifi.ssid = "connected", id, extras.ssid end
+                    end
+                else
+                    on_poll = function(n)
+                        if n == start + 2 then wifi.connection, wifi.auth_failed = "disconnected", true end
+                    end
+                end
+                -- Like the real helper, the reply also carries the *current*
+                -- connection's fields, including its networkId.
+                local reply = stateReply()
+                reply.createdNetworkId = id
+                -- The Nook drops the old connection right after join (seen in logcat).
+                wifi.connection = "disconnected"
+                return reply
+            elseif method == "forget" then
+                if not wifi.forget_allowed then return { ok = false, error = "request_rejected", protocol = 1 } end
+                table.insert(wifi.forgotten, tonumber(arg))
+                return { ok = true, protocol = 1 }
             elseif method == "ping" then
                 return { ok = true, protocol = 1, versionName = "test" }
             end
@@ -221,17 +295,23 @@ test("status without location permission hides name", function()
 end)
 
 test("saved networks sorted with labels", function()
+    wifi.saved[1].signalLevel = 2 -- Cafe seen in the last scan
     local _, items = newPlugin()
     local texts = renderMenu(savedMenuOf(items))
     eq(texts[1], "Home · signal 4/4", "first")
-    eq(texts[2], "(hidden network) · not in range", "second")
-    eq(texts[3], "Cafe · not in range", "third")
+    eq(texts[2], "Cafe · signal 2/4", "second")
+    eq(texts[3], "(hidden network)", "third")
 end)
 
-test("saved networks without scan info have no range labels", function()
-    wifi.scanAvailable = false
+test("current network shows live signal even when missing from the last scan", function()
+    -- A partial background scan left the connected network out of the results.
+    wifi.saved[2].signalLevel = nil
     local _, items = newPlugin()
-    eq(renderMenu(savedMenuOf(items))[1], "Home", "first")
+    local texts = renderMenu(savedMenuOf(items))
+    eq(texts[1], "Home · signal 4/4", "first")
+    for _, text in ipairs(texts) do
+        assert(not text:find("not in range", 1, true), "claims not in range: " .. text)
+    end
 end)
 
 test("saved networks empty and error cases", function()
@@ -326,6 +406,166 @@ test("busy blocks a second operation", function()
     plugin:reconnect()
     eq(#shown, before, "second operation showed something")
     runScheduled()
+end)
+
+-- Scanning and joining ------------------------------------------------------
+
+-- Runs a scan and returns the results Menu that was shown.
+local function scanAndGetMenu(plugin)
+    plugin:scanNetworks()
+    runScheduled()
+    for i = #shown, 1, -1 do
+        if shown[i].item_table then return shown[i] end
+    end
+    error("no results menu shown; last message: " .. tostring(lastMessage()))
+end
+local function itemFor(menu, ssid)
+    for _, item in ipairs(menu.item_table) do
+        if item.text == ssid then return item end
+    end
+    error("no item for " .. ssid)
+end
+
+test("scan lists networks sorted with labels", function()
+    local menu = scanAndGetMenu(newPlugin())
+    eq(menu.item_table[1].text, "Home", "first")
+    eq(menu.item_table[1].mandatory, "4/4 · connected", "current label")
+    eq(itemFor(menu, "Library").mandatory, "2/4 · open", "open label")
+    eq(itemFor(menu, "Office").mandatory, "3/4 · not supported", "eap label")
+end)
+
+test("scan without location permission explains how to grant it", function()
+    wifi.locationPermission = false
+    newPlugin():scanNetworks()
+    assert(lastMessage():find("pm grant", 1, true), "no grant instructions")
+end)
+
+test("unsupported security is explained, not joined", function()
+    local plugin = newPlugin()
+    itemFor(scanAndGetMenu(plugin), "Office").callback()
+    assert(lastMessage():find("WPA Enterprise", 1, true), "no unsupported message")
+    eq(wifi.join_args, nil, "join was called")
+end)
+
+test("open network joins without a password", function()
+    local plugin = newPlugin()
+    itemFor(scanAndGetMenu(plugin), "Library").callback()
+    runScheduled()
+    eq(wifi.join_args.password, nil, "password sent")
+    eq(lastMessage(), "Connected to Library.", "message")
+end)
+
+-- Opens the password dialog for ssid and types password into it.
+local function passwordDialogFor(plugin, ssid, password)
+    itemFor(scanAndGetMenu(plugin), ssid).callback()
+    local dialog = shown[#shown]
+    assert(dialog.text_type == "password", "no password dialog")
+    dialog._typed = password
+    return dialog
+end
+local function pressConnect(dialog) dialog.buttons[1][2].callback() end
+
+test("WPA network joins with the right password", function()
+    local plugin = newPlugin()
+    pressConnect(passwordDialogFor(plugin, "Neighbor", "correct horse"))
+    runScheduled()
+    eq(lastMessage(), "Connected to Neighbor.", "message")
+    eq(#wifi.forgotten, 0, "forgot a working network")
+end)
+
+test("wrong password is reported and the new network forgotten", function()
+    local plugin = newPlugin()
+    pressConnect(passwordDialogFor(plugin, "Neighbor", "wrong password"))
+    runScheduled()
+    eq(lastMessage(), "Wrong password for Neighbor.", "message")
+    eq(wifi.forgotten[1], 10, "forgotten network")
+end)
+
+test("too-short password is rejected before calling the helper", function()
+    local plugin = newPlugin()
+    local dialog = passwordDialogFor(plugin, "Neighbor", "short")
+    pressConnect(dialog)
+    eq(lastMessage(), "Wi-Fi passwords must be 8 to 63 characters.", "message")
+    eq(wifi.join_args, nil, "join was called")
+end)
+
+test("non-ASCII password is rejected", function()
+    local plugin = newPlugin()
+    pressConnect(passwordDialogFor(plugin, "Neighbor", "caf\u{E9} au lait"))
+    assert(lastMessage():find("ASCII", 1, true), "no ASCII message")
+end)
+
+test("debug logging is off while typing a password and restored after", function()
+    dbg_state.is_on = true
+    logger:setLevel(logger.levels.dbg)
+    debug_lines = {}
+    local plugin = newPlugin()
+    local dialog = passwordDialogFor(plugin, "Neighbor", "correct horse")
+    logger.dbg("add char", "c") -- what KOReader's keyboard does per keystroke
+    eq(#debug_lines, 0, "debug line logged while dialog open")
+    pressConnect(dialog)
+    logger.dbg("after")
+    eq(#debug_lines, 1, "debug logging not restored")
+    runScheduled()
+    dbg_state.is_on = false
+    logger:setLevel(logger.levels.info)
+end)
+
+test("cancelling the password dialog restores debug logging", function()
+    dbg_state.is_on = true
+    logger:setLevel(logger.levels.dbg)
+    debug_lines = {}
+    local plugin = newPlugin()
+    local dialog = passwordDialogFor(plugin, "Neighbor", "")
+    dialog.buttons[1][1].callback()
+    logger.dbg("after")
+    eq(#debug_lines, 1, "debug logging not restored")
+    dbg_state.is_on = false
+    logger:setLevel(logger.levels.info)
+end)
+
+test("failed join never forgets the network that was connected before", function()
+    local plugin = newPlugin()
+    pressConnect(passwordDialogFor(plugin, "Neighbor", "wrong password"))
+    runScheduled()
+    for _, id in ipairs(wifi.forgotten) do
+        assert(id ~= 1, "forgot the previously connected network")
+    end
+    eq(wifi.forgotten[1], 10, "forgotten network")
+end)
+
+test("successful join is recognised even when the reply's networkId is the old network", function()
+    local plugin = newPlugin()
+    pressConnect(passwordDialogFor(plugin, "Neighbor", "correct horse"))
+    runScheduled()
+    eq(lastMessage(), "Connected to Neighbor.", "message")
+end)
+
+test("wrong password when forget is refused points to Android settings", function()
+    wifi.forget_allowed = false
+    local plugin = newPlugin()
+    pressConnect(passwordDialogFor(plugin, "Neighbor", "wrong password"))
+    runScheduled()
+    local box = shown[#shown]
+    assert(box.ok_callback and box.ok_text == "Wi-Fi settings", "no Android settings prompt")
+    assert(box.text:find("Wrong password for Neighbor.", 1, true), "prompt does not say wrong password")
+    eq(plugin.busy, false, "busy")
+end)
+
+test("saved network with a wrong stored password points to Android settings", function()
+    wifi.stored_password_wrong = true
+    local plugin = newPlugin()
+    plugin:connectSaved(wifi.saved[1])
+    runScheduled()
+    local box = shown[#shown]
+    assert(box.ok_callback and box.text:find("saved password for Cafe", 1, true), "no Android settings prompt")
+end)
+
+test("saved networks offer no forget action", function()
+    local _, items = newPlugin()
+    for _, item in ipairs(savedMenuOf(items)) do
+        eq(item.hold_callback, nil, "hold_callback")
+    end
 end)
 
 -- NetworkMgr hooks ------------------------------------------------------------

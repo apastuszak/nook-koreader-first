@@ -110,13 +110,42 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
     - `getState` now also returns `networkId`.
   - New plugin menu items: Reconnect, and Saved networks (radio list: current network first, then by signal, labelled "signal N/4" or "not in range"). Choosing a network, or Reconnect, turns Wi-Fi on first if needed.
   - Verified on device:
-    - `enableNetwork(id, true)` works for networks saved by the system or the user, with no root needed.
+    - `enableNetwork(id, true)` starts a connection to any saved network, with no root needed. *Correction found in Stage 5:* the framework actually refuses the underlying permission ("UID 10051 does not have permission to update configuration"). The connection goes ahead only through `connectToUserSelectNetwork`'s "Allowing uid … with insufficient permissions to connect" path, so Android does not record it as the user's connect choice.
     - It does **not** permanently disable other saved networks; they stay "enabled".
     - Asking for an out-of-range network makes Android drop the current connection and fall back to another saved network within about 3 s. The plugin reports this immediately ("Could not connect to X. Connected to Y instead.") rather than waiting out the 20 s timeout.
   - Lint flags `getConfiguredNetworks`/`getScanResults` as needing `ACCESS_FINE_LOCATION`. That rule comes from newer APIs, so it is suppressed with a comment; on API 27 the Stage 0 results apply.
   - **Lessons from a crash in this stage:**
     - Never name a variable `_` in plugin code. It shadows gettext's `_`, and the next `_("…")` raises an error that takes down all of KOReader. luacheck ignores `_`, so only the offline tests catch this.
     - KOReader on this device writes no Lua traceback to logcat or `crash.log`. Its crash screen (`CrashReportActivity`) is the only place the error appears.
+
+- **Stage 5: done, verified on device** (2026-10-30, helper 0.4.1):
+  - New helper methods:
+    - `scan` and `scanResults`: one entry per SSID with signalLevel, security, current, savedNetworkId. `fresh` becomes true once results newer than the scan request arrive (about 1 s on the Nook). Both return `location_permission_needed` rather than Android's silent empty list.
+    - `join`: extras ssid/security/password. Returns `createdNetworkId`. Refuses SSIDs that are already saved (`already_saved` with `savedNetworkId`), so a typo can never overwrite a working password.
+    - `forget`: only removes networks `join` created in this helper process; anything else gets `not_created_here`.
+    - `getState.authFailed`: set from the `SUPPLICANT_STATE_CHANGED` broadcast with `ERROR_AUTHENTICATING`, and reset when a connect starts.
+  - Supported security: open and WPA/WPA2-PSK (WPA2/WPA3 transition networks join as WPA2). WPA3-only (SAE), OWE, Enterprise (EAP) and WEP get an explicit "not supported, use Android settings" message.
+  - Plugin flows:
+    - "Scan for networks…" opens a full-screen `Menu` list.
+    - A saved network connects directly; an open one joins with no password; WPA networks get an `InputDialog` with `text_type = "password"`.
+    - A wrong password shows "Wrong password for X." and the plugin forgets the network it just created.
+    - The "hold to forget" item in Saved networks was removed: the firmware refuses deleting networks the helper did not create.
+  - **Firmware Wi-Fi permissions on this Nook** (verified in logcat; the helper's UID is 10051):
+    - Add a network: allowed.
+    - Connect to any saved network: goes ahead through "insufficient permissions to connect".
+    - Change any saved network (`enableNetwork`'s update, or `addNetwork` with an existing configKey): **refused**, even for networks the helper created.
+    - Remove a network the helper created: **allowed**.
+    - Remove a network saved by the Nook (`com.nook.partner`) or Android settings: **refused**.
+    - Consequence: a saved network whose password stops working cannot be fixed by the helper. The plugin detects `authFailed` on `connectSaved` and offers a button to Android Wi-Fi settings.
+  - **Password handling (verified):** the password is sent only in `join`'s extras and never logged, stored, or echoed by the helper. KOReader's on-screen keyboard logs every character (`logger.dbg("add char", key)`), and KOReader also logs each touch with its coordinates, so the password dialog sets the logger to info level while open and restores it in `onCloseWidget`. On the device, with debug logging on, there were zero `add char` lines and no KOReader debug output at all while typing.
+  - Verified on device: scan list; joining a WPA2 phone hotspot with the right password (connected in about 0.5 s); wrong password reported and the created network removed. Saved networks no longer claims "not in range".
+  - Not tested on device: joining an open network, the unsupported-security message, and the Android-settings prompt for a saved network whose password fails. These are covered only by offline tests.
+  - **Bugs found and fixed in this stage:**
+    - `join` put the new network's ID in `networkId`, which `putState` then overwrote with the *current* connection's ID. The plugin waited for the wrong network and asked to forget the user's home network; only the firmware's refusal prevented the deletion. Hence `createdNetworkId`/`savedNetworkId`, and the helper-side `forget` guard.
+    - Saved networks labelled networks "not in range" from Android's last scan. While connected, Android's background scans cover only some channels and replace the cached results, so an absent network may still be in range. The list now shows the current network's signal from the live connection, and others only when seen.
+  - **Testing lessons:**
+    - The fake helper in `plugin/tests/run.lua` must return replies shaped like the real helper's, including `putState`'s current-connection fields and the Nook dropping the old connection on `join`. A fake that was too simple let the `networkId` bug pass.
+    - luacheck exits non-zero on warnings, so do not chain an install after `make check` with `| grep`. Check `make check`'s own exit status.
 
 Complete useful implementation work autonomously. Ask the user for device checks or decisions only when needed. Do not claim device behavior is verified until it has actually been tested.
 

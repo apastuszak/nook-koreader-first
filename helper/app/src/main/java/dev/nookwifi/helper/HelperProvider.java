@@ -26,7 +26,8 @@ import java.util.Set;
  * plugin sees a Java exception only when the helper is missing.
  *
  * Methods: ping, getState, setEnabled(arg "true"|"false"), listSaved,
- * connectSaved(arg networkId), reconnect. See WifiOps for fields.
+ * connectSaved(arg networkId), reconnect, scan, scanResults,
+ * join(extras ssid/security/password), forget(arg networkId). See WifiOps for fields.
  */
 public class HelperProvider extends ContentProvider {
     static final String TAG = "NookWifi";
@@ -50,16 +51,17 @@ public class HelperProvider extends ContentProvider {
     @Override
     public Bundle call(String method, String arg, Bundle extras) {
         String caller = getCallingPackage();
-        // Log the method only; args will carry passwords in later stages.
+        // Log the method only: join's extras carry a password.
         Log.i(TAG, "call " + method + " from " + caller);
         JSONObject reply;
         try {
             if (!isAllowed(caller)) {
                 reply = Replies.error("caller_not_allowed");
             } else {
-                reply = dispatch(method, arg);
+                reply = dispatch(method, arg, extras);
             }
         } catch (RuntimeException e) {
+            // The exception, not the arguments: those may include a password.
             Log.e(TAG, "call " + method + " failed", e);
             reply = Replies.error("internal_error");
         }
@@ -69,7 +71,7 @@ public class HelperProvider extends ContentProvider {
         return out;
     }
 
-    private JSONObject dispatch(String method, String arg) {
+    private JSONObject dispatch(String method, String arg, Bundle extras) {
         switch (method) {
             case "ping":
                 return ping();
@@ -83,6 +85,14 @@ public class HelperProvider extends ContentProvider {
                 return wifi.connectSaved(arg);
             case "reconnect":
                 return wifi.reconnect();
+            case "scan":
+                return wifi.startScan();
+            case "scanResults":
+                return wifi.scanResults();
+            case "join":
+                return wifi.join(extras);
+            case "forget":
+                return wifi.forget(arg);
             default:
                 return Replies.error("unknown_method");
         }
