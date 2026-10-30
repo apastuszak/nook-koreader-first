@@ -177,7 +177,8 @@ package.preload["nookwifihelper"] = function()
                     r.ok, r.error = false, "request_rejected"
                     return r
                 end
-                if not (wifi.ignore_off and arg == "false") then wifi.enabled = arg == "true" end
+                local ignored = (wifi.ignore_off and arg == "false") or (wifi.ignore_on and arg == "true")
+                if not ignored then wifi.enabled = arg == "true" end
                 return stateReply()
             elseif method == "listSaved" then
                 return { ok = true, protocol = 1, networks = wifi.saved, scanAvailable = wifi.scanAvailable }
@@ -733,6 +734,27 @@ test("hook: user toggle keeps a message up until connected, then names the netwo
     assert(progress.timeout == nil, "progress message times out on its own")
     runScheduled()
     eq(lastMessage(), "Wi-Fi on. Connected to Home.", "result message")
+end)
+
+test("hook: progress stops quietly if Wi-Fi is turned off meanwhile", function()
+    Network.install()
+    wifi.enabled = false
+    local start = polls
+    -- Comes on, then the user turns it off before any connection.
+    on_poll = function(n) if n == start + 3 then wifi.enabled = false end end
+    wifi.connection = "connecting"
+    NM:turnOnWifi(function() end, true)
+    runScheduled()
+    eq(lastMessage(), "Turning on Wi-Fi…", "showed a result for a superseded attempt")
+end)
+
+test("hook: progress timeout says Wi-Fi did not turn on when it is still off", function()
+    Network.install()
+    wifi.enabled = false
+    wifi.ignore_on = true -- the request is accepted but Wi-Fi never comes on
+    NM:turnOnWifi(function() end, true)
+    runScheduled()
+    eq(lastMessage(), "Wi-Fi did not turn on.", "message")
 end)
 
 test("hook: non-interactive turn-on shows no extra message", function()

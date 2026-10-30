@@ -20,8 +20,8 @@ android {
         minSdk = 27
         // Matches the Nook (API 27) and the behavior verified in Stage 0.
         targetSdk = 27
-        versionCode = 10
-        versionName = "1.0.4"
+        versionCode = 11
+        versionName = "1.0.5"
     }
 
     compileOptions {
@@ -49,9 +49,19 @@ android {
         }
     }
 
+    testOptions {
+        // NetworkRules and CreatedNetworks are plain Java; fail loudly if a test touches Android.
+        unitTests.isReturnDefaultValues = false
+    }
+
     lint {
         // targetSdk 27 is deliberate: this app is sideloaded onto an API 27 device, not published.
         disable += setOf("ExpiredTargetSdkVersion", "OldTargetApi")
         abortOnError = true
     }
+}
+
+dependencies {
+    // Test-only: JVM unit tests for the helper's pure logic. Nothing ships in the APK.
+    testImplementation("junit:junit:4.13.2")
 }

@@ -16,14 +16,21 @@ import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.provider.Settings;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import static dev.nookwifi.helper.NetworkRules.isHexKey;
+import static dev.nookwifi.helper.NetworkRules.isValidPsk;
+import static dev.nookwifi.helper.NetworkRules.networkKey;
+import static dev.nookwifi.helper.NetworkRules.quote;
+import static dev.nookwifi.helper.NetworkRules.scanSecurity;
+import static dev.nookwifi.helper.NetworkRules.unquote;
+
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -55,14 +62,12 @@ final class WifiOps {
 
     // Kept on disk, because Android may kill the cached helper process between
     // the plugin's polls: the scan request time (so "fresh" still works) and the
-    // networks join() created recently, the only ones forget() may remove. Those
-    // are recorded by networkKey, not networkId: IDs are reassigned when Android
-    // loads saved networks at boot, so a stored ID could later name another network.
+    // networks join() created recently, the only ones forget() may remove (see
+    // CreatedNetworks for why they are keyed by networkKey, boot and elapsed time).
     private static final String PREFS = "state";
     private static final String KEY_SCAN_REQUEST = "lastScanRequestMs";
-    private static final String KEY_CREATED = "createdNetworks";
-    // forget() is only for cleaning up right after a failed join.
-    private static final long FORGET_WINDOW_MS = 10 * 60 * 1000;
+    // 1.0.4 stored "createdNetworks" in a wall-clock format; a new key avoids it.
+    private static final String KEY_CREATED = "createdNetworksV2";
     private final SharedPreferences prefs;
 
     private final BroadcastReceiver supplicantReceiver = new BroadcastReceiver() {
@@ -398,13 +403,6 @@ final class WifiOps {
         return ids;
     }
 
-    // Identifies a network the way Android's configKey does: SSID plus security.
-    // Security comes first and never contains '|', so no SSID (which may contain
-    // any character) can make two different networks share a key.
-    private static String networkKey(String ssid, String security) {
-        return security + "|" + ssid;
-    }
-
     @SuppressLint("MissingPermission") // see listSaved
     private boolean isSaved(int networkId) {
         List<WifiConfiguration> configs = wifi.getConfiguredNetworks();
@@ -463,17 +461,8 @@ final class WifiOps {
         return null;
     }
 
-    // Entries are "<creation time ms>|<networkKey>"; the key itself may contain '|'.
     private boolean wasCreatedRecently(String key) {
-        long now = System.currentTimeMillis();
-        for (String entry : prefs.getStringSet(KEY_CREATED, Collections.<String>emptySet())) {
-            int bar = entry.indexOf('|');
-            long created = Long.parseLong(entry.substring(0, bar));
-            if (entry.substring(bar + 1).equals(key) && now - created >= 0 && now - created < FORGET_WINDOW_MS) {
-                return true;
-            }
-        }
-        return false;
+        return CreatedNetworks.isRecent(createdEntries(), key, bootCount(), SystemClock.elapsedRealtime());
     }
 
     private void recordCreated(String key) {
@@ -484,25 +473,22 @@ final class WifiOps {
         updateCreated(key, false);
     }
 
-    // Adds or removes key and drops expired entries. synchronized: two binder
-    // threads must not lose each other's update. commit(), not apply(): the write
-    // must survive the process being killed right after.
+    // synchronized: two binder threads must not lose each other's update. commit(),
+    // not apply(): the write must survive the process being killed right after.
     @SuppressLint("ApplySharedPref")
     private synchronized void updateCreated(String key, boolean add) {
-        long now = System.currentTimeMillis();
-        Set<String> kept = new HashSet<>();
-        for (String entry : prefs.getStringSet(KEY_CREATED, Collections.<String>emptySet())) {
-            int bar = entry.indexOf('|');
-            long created = Long.parseLong(entry.substring(0, bar));
-            boolean expired = now - created < 0 || now - created >= FORGET_WINDOW_MS;
-            if (!expired && !entry.substring(bar + 1).equals(key)) {
-                kept.add(entry);
-            }
-        }
-        if (add) {
-            kept.add(now + "|" + key);
-        }
-        prefs.edit().putStringSet(KEY_CREATED, kept).commit();
+        Set<String> updated = CreatedNetworks.update(createdEntries(), key, add, bootCount(),
+                SystemClock.elapsedRealtime());
+        prefs.edit().putStringSet(KEY_CREATED, updated).commit();
+    }
+
+    private Set<String> createdEntries() {
+        return prefs.getStringSet(KEY_CREATED, Collections.<String>emptySet());
+    }
+
+    // Changes on every boot, which is when elapsedRealtime restarts. -1 if unavailable.
+    private int bootCount() {
+        return Settings.Global.getInt(context.getContentResolver(), Settings.Global.BOOT_COUNT, -1);
     }
 
     private void resetAuthFailure() {
@@ -517,69 +503,6 @@ final class WifiOps {
             return null;
         }
         return unquote(ssid);
-    }
-
-    // Android quotes UTF-8 SSIDs and leaves hex SSIDs bare.
-    private static String unquote(String ssid) {
-        if (ssid == null || ssid.isEmpty()) {
-            return null;
-        }
-        if (ssid.length() >= 2 && ssid.startsWith("\"") && ssid.endsWith("\"")) {
-            return ssid.substring(1, ssid.length() - 1);
-        }
-        return ssid;
-    }
-
-    // WPA/WPA2 passphrases are 8-63 printable ASCII characters, or a 64-digit hex key.
-    private static boolean isValidPsk(String password) {
-        if (password == null) {
-            return false;
-        }
-        if (isHexKey(password)) {
-            return true;
-        }
-        if (password.length() < 8 || password.length() > 63) {
-            return false;
-        }
-        for (int i = 0; i < password.length(); i++) {
-            char ch = password.charAt(i);
-            if (ch < 0x20 || ch > 0x7e) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static boolean isHexKey(String password) {
-        return password.length() == 64 && password.matches("[0-9A-Fa-f]{64}");
-    }
-
-    private static String quote(String s) {
-        return "\"" + s + "\"";
-    }
-
-    // From ScanResult.capabilities, e.g. "[WPA2-PSK-CCMP][ESS]". PSK wins over SAE so
-    // WPA2/WPA3 transition networks join as WPA2, which API 27 supports.
-    private static String scanSecurity(String caps) {
-        if (caps == null) {
-            return "open";
-        }
-        if (caps.contains("EAP")) {
-            return "eap";
-        }
-        if (caps.contains("PSK")) {
-            return "wpa_psk";
-        }
-        if (caps.contains("SAE")) {
-            return "sae";
-        }
-        if (caps.contains("OWE")) {
-            return "owe";
-        }
-        if (caps.contains("WEP")) {
-            return "wep";
-        }
-        return "open";
     }
 
     private static String configStatus(int status) {

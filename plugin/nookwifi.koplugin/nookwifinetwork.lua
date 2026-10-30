@@ -59,19 +59,33 @@ local function showProgressUntilConnected()
     local progress = InfoMessage:new{ text = _("Turning on Wi-Fi…") }
     UIManager:show(progress)
     local started = time.now()
+    -- Wi-Fi can still report "disabled" for up to ~1 s after the request (seen in
+    -- Stage 2), so "off" only means superseded once it has started coming on.
+    local came_on = false
     local function poll()
         local state = helperState()
-        if state and state.connection == "connected" then
+        if not state then
+            UIManager:close(progress)
+            return
+        end
+        local on_or_coming = state.wifiState == "enabling" or state.wifiState == "enabled"
+        came_on = came_on or on_or_coming
+        if state.connection == "connected" then
             UIManager:close(progress)
             UIManager:show(InfoMessage:new{
                 text = state.ssid and T(_("Wi-Fi on. Connected to %1."), state.ssid) or _("Wi-Fi on."),
                 timeout = 3,
             })
-        elseif not state then
+        elseif came_on and not on_or_coming then
+            -- Turned off again meanwhile (e.g. by the user): this attempt is over.
             UIManager:close(progress)
         elseif time.to_s(time.since(started)) >= ON_PROGRESS_TIMEOUT_S then
             UIManager:close(progress)
-            UIManager:show(InfoMessage:new{ text = _("Wi-Fi is on but not connected to a network yet."), timeout = 3 })
+            UIManager:show(InfoMessage:new{
+                text = state.enabled and _("Wi-Fi is on but not connected to a network yet.")
+                    or _("Wi-Fi did not turn on."),
+                timeout = 3,
+            })
         else
             UIManager:scheduleIn(ON_POLL_INTERVAL_S, poll)
         end

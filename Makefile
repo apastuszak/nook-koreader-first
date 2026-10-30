@@ -29,7 +29,7 @@ build:
 
 # Lint plus offline tests; nothing here touches the device.
 check:
-	cd helper && ./gradlew --console=plain lint
+	cd helper && ./gradlew --console=plain lint testDebugUnitTest
 	$(LUACHECK) --no-color $(PLUGIN) plugin/tests
 	luajit plugin/tests/run.lua
 	luajit plugin/tests/jni.lua
