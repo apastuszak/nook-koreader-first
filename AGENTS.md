@@ -89,7 +89,16 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
   - The toggle polls `getState` every 0.5 s. It reports success only once Wi-Fi reaches the target state, and when turning on, only once it connects (20 s timeout for each step).
   - Verified in KOReader: status and details without location permission (network name shown as "(name hidden)", plus grant instructions); Wi-Fi off; Wi-Fi on with automatic reconnect; network name shown after `make grant-location`; "not installed" message after uninstalling the helper, with no crash; correct state after restarting KOReader.
   - Uninstalling the helper drops the location grant, so run `make grant-location` again after reinstalling.
-  - Not yet built: a way to grant location without ADB (for example, a small helper activity that requests it), and permission-denial handling beyond the instructions message.
+  - Not yet built (carried forward): a way to grant location without ADB (for example, a small helper activity that requests it), and permission-denial handling beyond the instructions message.
+
+- **Stage 3: done, verified on device** (2026-10-30, KOReader nightly `b44e9b7`):
+  - `nookwifinetwork.lua` replaces `NetworkMgr.isWifiOn`, `turnOnWifi`, `turnOffWifi`, `getCurrentNetwork` and `getWifiMenuTable` once per session. It also sets `Device.hasSeamlessWifiToggle` to true when the helper responds.
+  - Every override falls back to KOReader's original method when the helper cannot be reached. This was verified only offline, with stubbed KOReader modules; the fallback is not yet tested on the device.
+  - `turnOnWifi` runs NetworkMgr's callback immediately, and NetworkMgr's own connectivity check then waits for the connection and broadcasts `NetworkConnected`. `turnOffWifi` waits up to 10 s for "disabled" before running its callback.
+  - The plugin's own Wi-Fi checkbox now broadcasts `NetworkConnecting`/`NetworkConnected` and `NetworkDisconnecting`/`NetworkDisconnected`, so sync and other plugins see the change.
+  - Verified in KOReader: Settings → Network shows a "Wi-Fi connection" checkbox (instead of "Wi-Fi settings") that toggles without leaving KOReader. With "Action when Wi-Fi is off: turn on", opening an OPDS catalog while Wi-Fi was off turned Wi-Fi on, and connected and validated in about 2.5 s. The "Toggle Wi-Fi" gesture works.
+  - One OPDS attempt failed with `HTTP 504 Gateway Time-out` from `m.gutenberg.org`, *after* Wi-Fi had connected and validated. That was a server-side failure, not a timeout on our side. Do not lengthen plugin timeouts because of it.
+  - The reference KOReader source for these hooks is `frontend/ui/network/manager.lua` and `frontend/device/android/device.lua` at commit `b44e9b7`. Check them again when the user updates KOReader.
 
 Complete useful implementation work autonomously. Ask the user for device checks or decisions only when needed. Do not claim device behavior is verified until it has actually been tested.
 

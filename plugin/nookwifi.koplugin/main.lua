@@ -5,7 +5,9 @@ Wi-Fi controls for the Nook GlowLight 4 Plus, backed by the Nook Wi-Fi Helper ap
 --]]
 
 local Device = require("device")
+local Event = require("ui/event")
 local InfoMessage = require("ui/widget/infomessage")
+local NetworkMgr = require("ui/network/manager")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local time = require("ui/time")
@@ -17,6 +19,7 @@ if not Device:isAndroid() then
 end
 
 local Helper = require("nookwifihelper")
+local Network = require("nookwifinetwork")
 
 local POLL_INTERVAL_S = 0.5
 local STATE_TIMEOUT_S = 20
@@ -40,6 +43,7 @@ local NookWifi = WidgetContainer:extend{
 }
 
 function NookWifi:init()
+    Network.install()
     self.ui.menu:registerToMainMenu(self)
 end
 
@@ -195,13 +199,21 @@ function NookWifi:setWifi(on, touchmenu_instance)
     local waiting_for_connection = false
     local started = time.now()
 
-    local function finish(text)
+    -- event_name, if set, is broadcast so KOReader and other plugins (e.g. sync)
+    -- see the change just as if NetworkMgr had made it.
+    local function finish(text, event_name)
         self.busy = false
         self.cached_state = nil
         UIManager:close(progress)
+        NetworkMgr:queryNetworkState()
+        if event_name then
+            UIManager:broadcastEvent(Event:new(event_name))
+        end
         UIManager:show(InfoMessage:new{ text = text, timeout = 3 })
         if touchmenu_instance then touchmenu_instance:updateItems() end
     end
+
+    UIManager:broadcastEvent(Event:new(on and "NetworkConnecting" or "NetworkDisconnecting"))
 
     local function poll()
         local state, msg = self:getState(true)
@@ -209,7 +221,7 @@ function NookWifi:setWifi(on, touchmenu_instance)
         local elapsed = time.to_s(time.since(started))
         if not waiting_for_connection then
             if state.wifiState == target then
-                if not on then return finish(_("Wi-Fi is off.")) end
+                if not on then return finish(_("Wi-Fi is off."), "NetworkDisconnected") end
                 waiting_for_connection = true
                 started, elapsed = time.now(), 0
             elseif elapsed >= STATE_TIMEOUT_S then
@@ -219,7 +231,7 @@ function NookWifi:setWifi(on, touchmenu_instance)
         end
         if waiting_for_connection then
             if state.connection == "connected" then
-                return finish(T(_("Wi-Fi is on. %1."), connectedText(state)))
+                return finish(T(_("Wi-Fi is on. %1."), connectedText(state)), "NetworkConnected")
             elseif elapsed >= CONNECT_TIMEOUT_S then
                 return finish(_("Wi-Fi is on but not connected to a network."))
             end
