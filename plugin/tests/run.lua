@@ -165,6 +165,7 @@ package.preload["nookwifihelper"] = function()
         PROTOCOL = 1,
         call = function(method, arg, extras)
             if helper_missing then return nil, "helper_not_installed" end
+            if wifi.fail_method == method then return nil, wifi.fail_error end
             if method == "getState" then
                 if wifi.getstate_fail then return nil, "jni_error" end
                 polls = polls + 1
@@ -693,6 +694,29 @@ test("scan row uses the live connection, not the flag from scan time", function(
     itemFor(menu, "Home").callback()
     runScheduled()
     eq(lastMessage(), "Connected to Home.", "message")
+end)
+
+-- Fixes from Codex's review of 1.0.2 ------------------------------------------
+
+for _, err in ipairs({ "jni_error", "bad_reply", "protocol_mismatch" }) do
+    test("hook: " .. err .. " on turn-off opens Settings without reporting off", function()
+        Network.install()
+        wifi.fail_method, wifi.fail_error = "setEnabled", err
+        local called = false
+        NM:turnOffWifi(function() called = true end)
+        runScheduled()
+        assert(has(stock_calls, "turnOffWifi"), "Settings not opened")
+        eq(called, false, "reported Wi-Fi off while it may be on")
+    end)
+end
+
+test("hook: missing helper keeps exact stock turn-off behavior", function()
+    Network.install()
+    helper_missing = true
+    local called = false
+    NM:turnOffWifi(function() called = true end)
+    assert(has(stock_calls, "turnOffWifi"), "Settings not opened")
+    eq(called, true, "stock callback not run")
 end)
 
 -- NetworkMgr hooks ------------------------------------------------------------

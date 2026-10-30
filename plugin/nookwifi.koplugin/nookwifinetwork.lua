@@ -76,8 +76,14 @@ end
 local function turnOffWifi(self, complete_callback)
     local reply, err = Helper.call("setEnabled", "false")
     if not reply then
-        logger.warn("NookWifi: turnOffWifi falling back to stock behavior:", err)
-        return orig.turnOffWifi(self, complete_callback)
+        if err == "helper_not_installed" then
+            -- No helper at all: behave exactly like stock KOReader.
+            logger.warn("NookWifi: helper not installed, turnOffWifi uses stock behavior")
+            return orig.turnOffWifi(self, complete_callback)
+        end
+        -- The helper is there but failed (jni_error, bad_reply, protocol_mismatch).
+        logger.warn("NookWifi: turnOffWifi failed, opening Android Wi-Fi settings:", err)
+        return openSettingsOnly(self)
     end
     if not reply.ok then
         logger.warn("NookWifi: turnOffWifi rejected, opening Android Wi-Fi settings:", reply.error)

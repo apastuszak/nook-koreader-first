@@ -20,8 +20,8 @@ android {
         minSdk = 27
         // Matches the Nook (API 27) and the behavior verified in Stage 0.
         targetSdk = 27
-        versionCode = 8
-        versionName = "1.0.2"
+        versionCode = 9
+        versionName = "1.0.3"
     }
 
     compileOptions {
