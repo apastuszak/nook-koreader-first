@@ -374,14 +374,20 @@ function NookWifi:ensureEnabled(finish, next_step)
     end)
 end
 
--- Waits for any connection and reports it.
+-- Waits for any connection and reports it. Callers enter with Wi-Fi already
+-- reported enabled, so "disabled" or "disabling" here means it went off again
+-- (switched off elsewhere, or the driver failed): stop and say so.
 function NookWifi:waitForConnection(finish)
     self:pollState(CONNECT_TIMEOUT_S, finish, function(s)
+        if s.wifiState == "disabled" or s.wifiState == "disabling" then
+            finish(_("Wi-Fi is off."), "NetworkDisconnected")
+            return true
+        end
         if s.connection ~= "connected" then return false end
         finish(T(_("Wi-Fi is on. %1."), connectedText(s)), "NetworkConnected")
         return true
-    end, function()
-        finish(_("Wi-Fi is on but not connected to a network."))
+    end, function(s)
+        finish(s.enabled and _("Wi-Fi is on but not connected to a network.") or _("Wi-Fi is off."))
     end)
 end
 

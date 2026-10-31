@@ -379,6 +379,47 @@ test("turn on times out without connection", function()
     eq(lastMessage(), "Wi-Fi is on but not connected to a network.", "message")
 end)
 
+test("turn on stops when Wi-Fi goes off while waiting for a connection", function()
+    wifi.enabled = false
+    local plugin = newPlugin()
+    wifi.connection = "disconnected"
+    local start
+    on_poll = function(n)
+        start = start or n
+        if n == start + 3 then wifi.enabled = false end
+    end
+    plugin:setWifi(true)
+    local before = polls
+    runScheduled()
+    eq(lastMessage(), "Wi-Fi is off.", "message")
+    assert(has(events, "NetworkDisconnected"), "NetworkDisconnected not broadcast")
+    assert(polls - before < 10, "kept polling after Wi-Fi went off")
+end)
+
+test("reconnect stops when Wi-Fi goes off", function()
+    local plugin = newPlugin()
+    wifi.connection = "disconnected"
+    local start = polls
+    on_poll = function(n) if n == start + 3 then wifi.enabled = false end end
+    plugin:reconnect()
+    runScheduled()
+    eq(lastMessage(), "Wi-Fi is off.", "message")
+end)
+
+test("connection timeout reports the latest state", function()
+    local plugin = newPlugin()
+    wifi.connection = "disconnected"
+    -- Never "disabled", so only the timeout ends it; by then Wi-Fi reads off.
+    local start = polls
+    on_poll = function(n)
+        if n == start + 2 then wifi.state_script = {} end
+        if n > start + 2 then wifi.enabled, wifi.state_now = false, "unknown" end
+    end
+    plugin:reconnect()
+    runScheduled()
+    eq(lastMessage(), "Wi-Fi is off.", "message")
+end)
+
 test("connect to saved network succeeds", function()
     local plugin = newPlugin()
     on_poll = function(n)
