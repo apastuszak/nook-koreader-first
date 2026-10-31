@@ -387,7 +387,14 @@ function NookWifi:waitForConnection(finish)
         finish(T(_("Wi-Fi is on. %1."), connectedText(s)), "NetworkConnected")
         return true
     end, function(s)
-        finish(s.enabled and _("Wi-Fi is on but not connected to a network.") or _("Wi-Fi is off."))
+        -- Off states already ended the wait above. "enabled" in the reply is
+        -- true only in the enabled state, so an "enabling" or "unknown" state
+        -- gets a neutral message rather than a guess.
+        if s.wifiState == "enabled" then
+            finish(_("Wi-Fi is on but not connected to a network."))
+        else
+            finish(T(_("Wi-Fi did not connect within %1 seconds."), CONNECT_TIMEOUT_S))
+        end
     end)
 end
 

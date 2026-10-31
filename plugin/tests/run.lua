@@ -406,18 +406,18 @@ test("reconnect stops when Wi-Fi goes off", function()
     eq(lastMessage(), "Wi-Fi is off.", "message")
 end)
 
-test("connection timeout reports the latest state", function()
+test("connection timeout with an uncertain state does not guess", function()
     local plugin = newPlugin()
     wifi.connection = "disconnected"
-    -- Never "disabled", so only the timeout ends it; by then Wi-Fi reads off.
+    -- Never "disabled", so only the timeout ends it. The helper reports
+    -- enabled=false for "unknown" too, which must not be read as "off".
     local start = polls
     on_poll = function(n)
-        if n == start + 2 then wifi.state_script = {} end
         if n > start + 2 then wifi.enabled, wifi.state_now = false, "unknown" end
     end
     plugin:reconnect()
     runScheduled()
-    eq(lastMessage(), "Wi-Fi is off.", "message")
+    eq(lastMessage(), "Wi-Fi did not connect within 20 seconds.", "message")
 end)
 
 test("connect to saved network succeeds", function()
