@@ -31,6 +31,9 @@ local SCAN_TIMEOUT_S = 20
 local REMOTE_GRACE_S = 2
 -- Pairing took about 3 s, and the remote connected 0.3 s after that.
 local PAIR_TIMEOUT_S = 30
+-- Forgetting took under 1 s. Android queues the removal, so the request being
+-- accepted does not mean it happened.
+local FORGET_TIMEOUT_S = 10
 -- After a book closes, wait this long before turning Bluetooth off, so opening
 -- the next book straight away does not switch it off and on again.
 local CLOSE_DELAY_S = 5
@@ -133,9 +136,18 @@ end
 
 -- Quiet switch for the automatic "while reading" behaviour: no message, no
 -- waiting; failures are only logged.
+-- Whether Bluetooth is at, or already heading to, on (or off). "enabled" alone
+-- is not enough: it is false while turning on, so a turn-off then would be
+-- skipped and Bluetooth would finish turning on, e.g. while the Nook sleeps.
+local function headingTo(state, on)
+    local s = state.bluetoothState
+    if on then return s == "on" or s == "turning_on" end
+    return s == "off" or s == "turning_off"
+end
+
 local function switchQuietly(on, why)
     local state = call("btState")
-    if not state or not state.available or state.enabled == on then return end
+    if not state or not state.available or headingTo(state, on) then return end
     local reply, msg = call("btSetEnabled", on and "true" or "false")
     if reply then
         logger.info("NookWifi: Bluetooth", on and "on" or "off", "(" .. why .. ")")
@@ -255,19 +267,36 @@ function NookWifi:confirmForget(dev, touchmenu_instance)
     UIManager:show(ConfirmBox:new{
         text = T(_("Forget %1? You will need to pair it again to use it."), deviceName(dev)),
         ok_text = _("Forget"),
-        ok_callback = function()
-            local reply, msg, raw = call("btForget", dev.address)
-            self.bt_paired = nil
-            if reply then
-                UIManager:show(InfoMessage:new{ text = T(_("Forgot %1."), deviceName(dev)), timeout = 3 })
-            elseif raw and raw.error == "not_supported" then
-                self:showBluetoothSettingsPrompt(msg)
-            else
-                UIManager:show(InfoMessage:new{ text = msg })
-            end
-            if touchmenu_instance then touchmenu_instance:updateItems() end
-        end,
+        ok_callback = function() self:forgetRemote(dev, touchmenu_instance) end,
     })
+end
+
+-- Reports success only once Android says the remote is no longer paired.
+function NookWifi:forgetRemote(dev, touchmenu_instance)
+    if self.busy then return end
+    local name = deviceName(dev)
+    local reply, msg, raw = call("btForget", dev.address)
+    self.bt_paired = nil
+    if not reply then
+        if raw and raw.error == "not_supported" then
+            self:showBluetoothSettingsPrompt(msg)
+        else
+            UIManager:show(InfoMessage:new{ text = msg })
+        end
+        return
+    end
+    local finish = self:beginOperation(T(_("Forgetting %1…"), name), touchmenu_instance)
+    self:pollState(FORGET_TIMEOUT_S, finish, function(r)
+        if (r.device or {}).bond ~= "none" then return false end
+        self.bt_paired = nil
+        finish(T(_("Forgot %1."), name))
+        return true
+    end, function()
+        self.bt_paired = nil
+        finish()
+        self:showBluetoothSettingsPrompt(T(_("Could not forget %1."), name) .. "\n\n"
+            .. _("Not supported on this device. Use Android Bluetooth settings."))
+    end, function() return call("btDevice", dev.address) end)
 end
 
 function NookWifi:showBluetoothSettingsPrompt(text)
@@ -511,7 +540,7 @@ function NookWifi:onRequestSuspend()
     if not whileReading() or self.busy or not (self.ui and self.ui.document) then return end
     local state = call("btState")
     -- screenOn is missing only from a helper too old for Bluetooth anyway.
-    if state and state.enabled and state.screenOn == false then
+    if state and state.available and not headingTo(state, false) and state.screenOn == false then
         shared.off_for_sleep = true
         switchQuietly(false, "sleeping")
     end

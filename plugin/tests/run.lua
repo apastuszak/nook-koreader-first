@@ -220,6 +220,20 @@ local function btTick()
         if not bt.enabled then
             for _, d in ipairs(bt.paired) do d.connection = "disconnected" end
         end
+        if bt.queued ~= nil and bt.queued ~= bt.enabled then
+            bt.state = bt.queued and "turning_on" or "turning_off"
+            bt.pending, bt.pending_at = bt.queued, bt.polls + 2
+        end
+        bt.queued = nil
+    end
+    if bt.forgetting and bt.polls >= bt.forgetting.at then
+        for i, d in ipairs(bt.paired) do
+            if d == bt.forgetting.dev then
+                table.remove(bt.paired, i)
+                d.bond, d.connection = "none", "disconnected"
+            end
+        end
+        bt.forgetting = nil
     end
     if bt.pairing and bt.polls >= bt.pairing.next_at then
         local p = bt.pairing
@@ -266,7 +280,11 @@ local function btCall(method, arg)
         if not bt.available then return btError("bt_unavailable") end
         if bt.reject_switch then return btError("request_rejected") end
         local on = arg == "true"
-        if bt.enabled ~= on then
+        if bt.pending ~= nil then
+            -- Mid-transition, Android queues the request: the transition finishes,
+            -- then Bluetooth switches again if the latest request differs.
+            bt.queued = on
+        elseif bt.enabled ~= on then
             bt.state = on and "turning_on" or "turning_off"
             bt.pending, bt.pending_at = on, bt.polls + 2
         end
@@ -316,9 +334,11 @@ local function btCall(method, arg)
         return btReply()
     elseif method == "btForget" then
         if bt.forget_unsupported then return btError("not_supported") end
-        for i, d in ipairs(bt.paired) do
+        for _, d in ipairs(bt.paired) do
             if d.address == arg then
-                table.remove(bt.paired, i)
+                -- Android 8.1 queues the removal: it happens on a later poll,
+                -- or (bt.forget_never) the queued operation fails.
+                if not bt.forget_never then bt.forgetting = { dev = d, at = bt.polls + 2 } end
                 return btReply()
             end
         end
@@ -1312,8 +1332,46 @@ test("bt: hold to forget a remote", function()
     local box = shown[#shown]
     eq(box.ok_text, "Forget", "confirm button")
     box.ok_callback()
+    eq(#bt.paired, 1, "removed before Android processed it")
+    eq(shown[#shown].text, "Forgetting 8BitDo Micro gamepad…", "progress")
+    runScheduled()
     eq(#bt.paired, 0, "paired devices left")
     eq(lastMessage(), "Forgot 8BitDo Micro gamepad.", "message")
+end)
+
+test("bt: forget that Android never completes is reported, with the settings prompt", function()
+    bt.forget_never = true
+    local _, items = newBtPlugin()
+    itemNamed(items, "Paired remotes").sub_item_table_func()[1].hold_callback()
+    shown[#shown].ok_callback()
+    runScheduled()
+    local box = shown[#shown]
+    assert(box.text:find("^Could not forget 8BitDo Micro gamepad%."), box.text)
+    eq(box.ok_text, "Bluetooth settings", "prompt button")
+    eq(#bt.paired, 1, "paired devices left")
+end)
+
+test("bt: sleeping while Bluetooth is still turning on turns it off", function()
+    settings_store.nookbluetooth_while_reading = true
+    btStartOff()
+    local plugin = newBtPlugin(true)
+    plugin:onReaderReady() -- book opened: Bluetooth starts turning on
+    eq(bt.state, "turning_on", "state after opening")
+    bt.screen_on = false
+    plugin:onRequestSuspend() -- the Nook sleeps before it finished
+    for _ = 1, 6 do btTick() end
+    eq(bt.enabled, false, "Bluetooth finished turning on while asleep")
+end)
+
+test("bt: closing a book while Bluetooth is still turning on turns it off", function()
+    settings_store.nookbluetooth_while_reading = true
+    btStartOff()
+    local plugin = newBtPlugin(true)
+    plugin:onReaderReady()
+    plugin:onCloseDocument()
+    runScheduled() -- the 5 s delay passes without polls, so it still reads turning_on
+    for _ = 1, 6 do btTick() end
+    eq(bt.enabled, false, "enabled")
 end)
 
 test("bt: forget not supported points to Android Bluetooth settings", function()
