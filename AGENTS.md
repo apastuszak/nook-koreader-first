@@ -378,6 +378,20 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
   - **Settings fallback must be stock Android's Bluetooth screen, never the Nook's.** The Nook's own Bluetooth settings cannot pair HID devices (per the user). Open the component explicitly: `com.android.settings/.Settings$BluetoothSettingsActivity`. Fall back to the `android.settings.BLUETOOTH_SETTINGS` action only if that component is missing. Checked 2026-10-30: on this firmware that action resolves only to that stock activity; the Nook's screen is not registered for it. The user paired the 8BitDo in the stock screen before Stage 0, so that path works for it.
   - Rules carried over: report results only once the state really changes, never log device secrets or PINs, keep the fake helper faithful, add JUnit tests for any pure logic, and keep the README and AGENTS.md in sync.
 
+- **Sleep screen and timers: device findings (2026-10-31).** Found by reading the Nook's code (`com.nook.partner`, and `services.vdex` carved to dex) and testing over ADB.
+  - **Sleep screen:**
+    - It is **not** the wallpaper. As the Nook sleeps, `PowerManagerService` (B&N-modified) draws its "slide to unlock" window with a built-in image from `/system/media/SleepImageNook/` (Art1–Art6, `_bk`/`_wt`), which is read-only without root. Log line: `MsgSlideUnlock /system/media/SleepImageNook/<file>`.
+    - The system settings `sleep_screen_mode` (black/white variant) and `current_sleep_screen_type` only choose among those files.
+    - `com.nook.partner`'s exported `ScreenSaverReceiver` accepts `SCREEN_SAVER_FROM_SDCARD` + `EXTRA_SCREEN_SAVER_PATH` from anyone and sets that image as the **wallpaper**, which the sleep screen ignores. Undo with `SCREEN_SAVER_CATEGORY` + `EXTRA_SCREEN_SAVER_CATEGORY=1` (the default; wallpaper `res:com.nook.partner:drawable/artboard_1`).
+    - The framework also has unused-looking code for a user folder (`ntx.fb.FrameBufferEx$Screen`: `/sdcard/sleep`, index in `/data/system/sleepIdx`). It never ran in any mode tried.
+    - **Conclusion: no custom sleep image without root.** Untested lead: `lockscreen_status` (system, `1`), read only at boot by `SystemServer`/`PowerManagerService`, may control the slide-unlock window.
+    - KOReader's own screensaver does nothing on Android (`canSuspend = no`).
+  - **Sleep timer:** standard `screen_off_timeout` (ms; the Nook's settings offer 2, 5 or 15 min, or 1 h). KOReader already offers Settings → Screen → Screen timeout (2–30 min, keep on, system); it holds `WRITE_SETTINGS` (appop allowed on this Nook). Nothing to build.
+  - **Power-off timer: verified on device.** Hidden system setting `power_off_timeout`, in **milliseconds**, `0` = never (the default). On each sleep, `PowerManagerEx.onGoToSleepStartedLocked` logs `PowerOffTimeoutGet=<v>` and, if non-zero, `PowerOffAlarmSetup`. With `120000` the Nook shut down 2 min 13 s after sleeping, **even on USB power**. Turning it back on needed a long press. Not public in `Settings.System`, so Android 8.1 should refuse writes from apps targeting API 23+ even with `WRITE_SETTINGS`; untested for the helper. The ADB shell can write it.
+  - **Testing hazard:** a short `power_off_timeout` powers the Nook off after every sleep, cutting ADB. Always reset it to `0` as soon as the Nook is back.
+  - The firmware itself turns Bluetooth and Wi-Fi off on sleep and back on on wake (`postDisableBT`/`postEnableBT`, `postDisableWifi`/`postEnableWifi` in `PowerManagerEx`), independent of the plugin.
+  - The user reports a short press of the power button rarely puts the Nook to sleep; `adb shell input keyevent KEYCODE_SLEEP` does.
+
 Complete useful implementation work autonomously. Ask the user for device checks or decisions only when needed. Do not claim device behavior is verified until it has actually been tested.
 
 ## Android considerations
