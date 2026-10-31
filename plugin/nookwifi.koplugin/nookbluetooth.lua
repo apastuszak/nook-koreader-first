@@ -290,12 +290,17 @@ function NookWifi:forgetRemote(dev, touchmenu_instance)
         if (r.device or {}).bond ~= "none" then return false end
         self.bt_paired = nil
         finish(T(_("Forgot %1."), name))
+        -- The paired list was built when it opened and still shows the remote;
+        -- go back up to the Bluetooth menu, whose status is redrawn.
+        if touchmenu_instance and UIManager:isWidgetShown(touchmenu_instance.show_parent) then
+            touchmenu_instance:backToUpperMenu()
+        end
         return true
     end, function()
         self.bt_paired = nil
         finish()
-        self:showBluetoothSettingsPrompt(T(_("Could not forget %1."), name) .. "\n\n"
-            .. _("Not supported on this device. Use Android Bluetooth settings."))
+        self:showBluetoothSettingsPrompt(T(_("Could not forget %1. Try again, or use Android Bluetooth settings."),
+            name))
     end, function() return call("btDevice", dev.address) end)
 end
 
@@ -431,9 +436,10 @@ function NookWifi:addBluetoothMenu(menu_items)
         local state = self:btState()
         return not self.busy and state ~= nil and state.available
     end
+    -- Checked while on or turning on, so a tap during either switches it off.
     local function isOn()
         local state = self:btState()
-        return state ~= nil and state.enabled
+        return state ~= nil and state.available and headingTo(state, true)
     end
     menu_items.nookbluetooth = {
         text = _("Nook Bluetooth"),
@@ -454,7 +460,7 @@ function NookWifi:addBluetoothMenu(menu_items)
                 keep_menu_open = true,
                 callback = function(touchmenu_instance)
                     local state = self:btState(true)
-                    if state then self:setBluetooth(not state.enabled, touchmenu_instance) end
+                    if state then self:setBluetooth(not headingTo(state, true), touchmenu_instance) end
                 end,
             },
             {
@@ -506,7 +512,8 @@ function NookWifi:onNookBluetoothToggle()
     if not state then
         UIManager:show(InfoMessage:new{ text = msg })
     elseif state.available then
-        self:setBluetooth(not state.enabled)
+        -- While turning on, a toggle means "off" (and while turning off, "on").
+        self:setBluetooth(not headingTo(state, true))
     end
     return true
 end

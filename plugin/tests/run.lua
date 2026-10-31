@@ -1339,6 +1339,35 @@ test("bt: hold to forget a remote", function()
     eq(lastMessage(), "Forgot 8BitDo Micro gamepad.", "message")
 end)
 
+test("bt: after forgetting, the stale paired list is left for the Bluetooth menu", function()
+    local _, items = newBtPlugin()
+    local went_up = 0
+    local touchmenu = {
+        show_parent = { shown = true },
+        updateItems = function() end,
+        backToUpperMenu = function() went_up = went_up + 1 end,
+    }
+    itemNamed(items, "Paired remotes").sub_item_table_func()[1].hold_callback(touchmenu)
+    shown[#shown].ok_callback()
+    runScheduled()
+    eq(went_up, 1, "backToUpperMenu calls")
+end)
+
+test("bt: toggling while Bluetooth is turning on turns it off", function()
+    btStartOff()
+    local plugin, items = newBtPlugin()
+    plugin:setBluetooth(true) -- now turning on
+    queue = {} -- the user acts before the first poll
+    plugin.busy = false
+    eq(bt.state, "turning_on", "state")
+    plugin.bt_cached = nil
+    eq(itemNamed(items, "Bluetooth").checked_func(), true, "checkbox while turning on")
+    plugin:onNookBluetoothToggle()
+    runScheduled()
+    eq(lastMessage(), "Bluetooth off.", "message")
+    eq(bt.enabled, false, "enabled")
+end)
+
 test("bt: forget that Android never completes is reported, with the settings prompt", function()
     bt.forget_never = true
     local _, items = newBtPlugin()
@@ -1346,7 +1375,7 @@ test("bt: forget that Android never completes is reported, with the settings pro
     shown[#shown].ok_callback()
     runScheduled()
     local box = shown[#shown]
-    assert(box.text:find("^Could not forget 8BitDo Micro gamepad%."), box.text)
+    eq(box.text, "Could not forget 8BitDo Micro gamepad. Try again, or use Android Bluetooth settings.", "text")
     eq(box.ok_text, "Bluetooth settings", "prompt button")
     eq(#bt.paired, 1, "paired devices left")
 end)
