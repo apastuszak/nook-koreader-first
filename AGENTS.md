@@ -4,6 +4,9 @@ This file is the single source of project guidance for all coding agents (Codex,
 
 ## Objective
 
+**Project name: "KOReader-first Nook"** (decided 2026-10-31): make the Nook a KOReader-first device. The GitHub repo is to be the **private** `apastuszak/nook-koreader-first` (not created yet); the local folder keeps its old name, `nook-koreader-android-launcher`. Commits keep the user's gmail address (it is already on their other repos). The helper (`dev.nookwifi.helper`, "Nook Wi-Fi Helper") and plugin (`nookwifi.koplugin`, "Nook Wi-Fi") keep their names: renaming the package would break updates and drop its permission grants.
+
+
 Build a KOReader plugin that lets the user turn Wi-Fi on and off on demand and join Wi-Fi networks from within KOReader on a Barnes & Noble Nook GlowLight 4 Plus.
 
 The desired experience is to manage connectivity without returning to the stock Nook home screen. Start with Wi-Fi on/off and reconnecting to saved networks, then add scanning, network selection, and password entry.
@@ -20,7 +23,7 @@ The desired experience is to manage connectivity without returning to the stock 
 - The details below were collected on 2026-10-30 with `scripts/nook-recon.fish`:
   - Model `BNRV1300`, firmware `8.1.7.120_user`, fingerprint `NOOK/E70P74_android/E70P74_android:8.1.0/b3b5739/8.1.7.120_user:user/release-keys`.
   - Not rooted: user build, `ro.debuggable=0`, `ro.secure=1`, no `su` binary. Do not require root.
-  - KOReader: package `org.koreader.launcher`, nightly `v2026.07.2-217-gb44e9b7_2026-10-03`, `targetSdk=30`. It does **not** declare `CHANGE_WIFI_STATE` or `ACCESS_WIFI_STATE`, so a helper APK is required for Wi-Fi control.
+  - KOReader: package `org.koreader.launcher`, nightly `v2026.07.2-217-gb44e9b7_2026-10-03`, `targetSdk=30`. **Frontlight brightness and warmth work only with a KOReader nightly build** (per the user, 2026-10-31; the stable release's light controls do not work on this Nook), and KOReader also needs the `WRITE_SETTINGS` app op for them (`install.sh` grants it). Nightlies: https://build.koreader.rocks/download/nightly/. It does **not** declare `CHANGE_WIFI_STATE` or `ACCESS_WIFI_STATE`, so a helper APK is required for Wi-Fi control.
   - Default launcher: Olauncher (`app.olauncher`). Stock Nook packages such as `bn.ereader` and `com.bn.nook.hub` are still installed.
   - Location: `location_providers_allowed=network`, but there is no network location provider (no GMS/NLP). Only `fused` and `passive` exist, and `fused` reports disabled. Do not rely on working location services.
   - `adb shell svc wifi disable/enable` toggles Wi-Fi in about 1–2 s, and the firmware does not revert it. This uses ADB shell privileges and does not prove a normal app can toggle Wi-Fi.

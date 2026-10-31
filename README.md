@@ -1,18 +1,29 @@
-# Nook Wi-Fi for KOReader
+# KOReader-first Nook
 
-Turn Wi-Fi on and off, switch between saved networks, and join new networks from inside KOReader on a **Barnes & Noble Nook GlowLight 4 Plus**, without going back to the Nook home screen or Android settings. It also manages **Bluetooth page-turner remotes** (Bluetooth on/off, pairing, and keeping Bluetooth on only while you read) and can set the Nook to **power off after sleeping** for a while.
+Make a **Barnes & Noble Nook GlowLight 4 Plus** a KOReader-first e-reader: everything you need day to day, from inside KOReader, without going back to the Nook's own software or Android settings. No root is needed.
 
-It has two parts:
+What you get:
 
-- **Nook Wi-Fi Helper** (`nookwifi-helper-<version>.apk`): a small Android app that holds the Wi-Fi, Bluetooth and system-settings permissions KOReader does not have. You open it once during setup.
-- **Nook Wi-Fi plugin** (`nookwifi.koplugin-<version>.zip`): the KOReader plugin you actually use.
+- **Wi-Fi**: turn it on and off, switch between saved networks, and join new ones.
+- **Bluetooth page-turner remotes**: Bluetooth on/off, pairing, and keeping Bluetooth on only while you read.
+- **Nook power off after sleeping**: let the Nook switch itself off after sleeping for a while.
+- **Open Nook home**: jump to the Nook's own home screen when you do need it (the B&N store, the Nook's settings), and press Home to come back.
+- **KOReader as the Home app** (optional): the Home button opens KOReader, and KOReader's Exit becomes **Restart KOReader**.
 
-No root is needed.
+The parts:
+
+- **Nook Wi-Fi Helper** (`nookwifi-helper-<version>.apk`): a small Android app that holds the Wi-Fi, Bluetooth and system-settings permissions KOReader does not have.
+- **Nook Wi-Fi plugin** (`nookwifi.koplugin-<version>.zip`): the KOReader plugin you actually use: the Wi-Fi, Bluetooth, power-off and Open Nook home menus come from it.
+- **KOReader Home** (`koreader-home-<version>.apk`, optional) and its KOReader patch (`2-koreader-home.lua`): see [Optional: KOReader Home launcher](#optional-koreader-home-launcher).
+- **`install.sh`**: installs everything over USB and sets the permissions in one step (see [Quick install over USB](#quick-install-over-usb)).
+
+The helper and plugin keep the names they started with ("Nook Wi-Fi"), because renaming them would break updates of existing installs.
 
 ## Requirements
 
 - Nook GlowLight 4 Plus (Android 8.1). It has only been tested on firmware 8.1.7.120.
 - KOReader for Android, installed as `org.koreader.launcher`. It has been tested with the nightly build from 3 October 2026.
+- **For frontlight brightness and warmth, use a KOReader nightly build** for Android. With the stable release, KOReader's brightness and warmth controls do not work on the Nook. Nightly builds are on [KOReader's nightly download page](https://build.koreader.rocks/download/nightly/).
 
 ## Install
 
@@ -46,7 +57,7 @@ To also install the optional [KOReader Home launcher](#optional-koreader-home-la
    ```sh
    adb shell appops set dev.nookwifi.helper WRITE_SETTINGS allow
    ```
-4. **Frontlight (if KOReader's brightness or warmth controls do nothing).** KOReader changes the light through Android's system settings, so it needs **Modify system settings**: in Android Settings → Apps → KOReader → Advanced → Modify system settings, turn it on. Over USB instead:
+4. **Frontlight (if KOReader's brightness or warmth controls do nothing).** First make sure you use a KOReader nightly build (see [Requirements](#requirements)). KOReader changes the light through Android's system settings, so it also needs **Modify system settings**: in Android Settings → Apps → KOReader → Advanced → Modify system settings, turn it on. Over USB instead:
    ```sh
    adb shell appops set org.koreader.launcher WRITE_SETTINGS allow
    ```
