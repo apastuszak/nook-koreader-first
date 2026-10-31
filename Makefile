@@ -46,8 +46,11 @@ install-helper: build
 	adb install -r $(APK)
 
 # Restart KOReader afterwards to load the new plugin code.
+# adb push does not create a missing destination folder, and KOReader creates
+# neither plugins/ nor patches/ until something is put there.
 install-plugin:
 	adb shell rm -rf $(DEVICE_PLUGINS)/nookwifi.koplugin
+	adb shell mkdir -p $(DEVICE_PLUGINS)
 	adb push $(PLUGIN) $(DEVICE_PLUGINS)/
 
 # One-time grant needed for scan results and the current SSID.
@@ -116,17 +119,19 @@ release-launcher:
 
 install-launcher: check release-launcher
 	adb install -r $(LAUNCHER_APK)
+	adb shell mkdir -p $(DEVICE_PATCHES)
 	adb push $(HOME_PATCH) $(DEVICE_PATCHES)/
 
 # Only the KOReader patch; KOReader loads it at its next start.
 install-launcher-patch:
+	adb shell mkdir -p $(DEVICE_PATCHES)
 	adb push $(HOME_PATCH) $(DEVICE_PATCHES)/
 
 launcher-recovery:
 	adb shell am start -n $(LAUNCHER_PKG)/.RecoveryActivity
 
 uninstall-launcher:
-	adb uninstall $(LAUNCHER_PKG)
+	-adb uninstall $(LAUNCHER_PKG)
 	adb shell rm -f $(DEVICE_PATCHES)/$(notdir $(HOME_PATCH))
 
 logs-launcher:

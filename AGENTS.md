@@ -315,6 +315,15 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
   - **Guard window widened from 10 s to 30 s** (`LaunchGuard.LOOP_MS`, the user's choice): one exit-and-reopen cycle took about 7 s, so three exits never fitted in 10 s. 30 s also catches crashes a few seconds after opening. Cost: three Home presses within 30 s during normal use open recovery (one tap to resume). Verified on device (2026-10-31): three exits about 7 s apart gave launch, launch, then `loop` → recovery (14.5 s from first to third).
   - The recovery screen's resume button now clears the pause and history (`LaunchState.resume()`) and starts the implicit HOME intent when this launcher is the default, so HomeActivity opens KOReader and records the launch. A third-party implicit HOME start with HOME as the only category runs as a Home start (seen in logcat: HomeActivity started from uid 10054 and opened KOReader). Otherwise it falls back to opening KOReader directly. `AppLaunch.openReader` still adds `FLAG_ACTIVITY_TASK_ON_HOME`; harmless, but not what fixed Exit.
 
+- **Launcher review after 0.1.6 (2026-10-31): bugs and security.**
+  - Fixed:
+    - `adb push` does **not** create a missing destination folder (verified on the Nook: "remote couldn't create file: Is a directory"), and KOReader creates no `patches/` folder by itself. `install-launcher`, `install-launcher-patch` and `install-plugin` now run `mkdir -p` first; the README's manual steps say the same.
+    - `uninstall-launcher` stopped before removing the patch if the APK was already gone; the uninstall is now allowed to fail.
+  - Accepted:
+    - While recovery is paused, the menu still says **Restart KOReader**, but Home then shows recovery instead of KOReader. KOReader cannot read the launcher's private pause flag, and recovery is the right place to land.
+    - If a future KOReader moves `ui/menusorter`, the patch fails to load after already wrapping `Device.exit`: Exit keeps working, the label stays "Exit", and KOReader shows its usual "Error applying patch" message.
+  - Security: no change in exposed surface. The patch passes no data, starts only the implicit HOME intent, and only when `resolveActivity` names this launcher; it logs nothing user-specific. The launcher still has no permissions; exported HomeActivity/RecoveryActivity remain the accepted nuisance from 0.1.3 (another app can pause the launcher or count toward the guard, nothing more).
+
 - **Future: Bluetooth page-turner support from KOReader** (the user asked on 2026-10-30; not started). **Scope: page-turner remotes only.** Headphones and audio are explicitly out of scope. The goal: turn Bluetooth on, pair or reconnect a remote (KOReader treats it as a keyboard), then turn it off to save battery.
   - Verified so far: the Nook reports `android.hardware.bluetooth` and `bluetooth_le`, `bluetooth_manager` runs, and `bluetooth_on` was 1 (on).
   - Approach: extend the existing helper and plugin; no separate app.

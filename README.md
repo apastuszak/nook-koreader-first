@@ -23,6 +23,7 @@ No root is needed.
 2. **Install the plugin.** Unzip `nookwifi.koplugin-<version>.zip` and copy the `nookwifi.koplugin` folder into `koreader/plugins/` on the Nook's storage. Over USB:
    ```sh
    unzip nookwifi.koplugin-<version>.zip
+   adb shell mkdir -p /sdcard/koreader/plugins
    adb push nookwifi.koplugin /sdcard/koreader/plugins/
    ```
 3. **Allow location access (once).** Open **Nook Wi-Fi Helper** from your launcher's app list and tap **Allow location access**, then **Allow**. Android only shows Wi-Fi network names to apps with location access; the helper never uses your location. Over USB instead:
@@ -100,7 +101,8 @@ Home, the recovery screen, recovering from a KOReader crash, rebooting, and **Re
 KOReader** with the patch.
 
 Install `koreader-home-<version>.apk` from `dist/`, and copy
-`2-koreader-home.lua` from `dist/` to `koreader/patches/` on the Nook. Or use:
+`2-koreader-home.lua` from `dist/` to `koreader/patches/` on the Nook (create the
+`patches` folder if it does not exist). Or use:
 
 ```sh
 make install-launcher
