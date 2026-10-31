@@ -115,8 +115,10 @@ Open **KOReader Home** from Olauncher to reach its recovery screen. It offers:
 - **Android Settings** and **All apps**.
 
 Once KOReader Home is the default, press **Home 3 times, about 2 seconds apart**,
-to open recovery. Quick taps do not work: the Nook's Home button only registers
-again 1–2 seconds after each press, so fast taps count as one. Any three Home
+to open recovery. Touch the button for about a second each time: the Home button is
+capacitive, and a very quick tap may not register at all. Quick repeated taps do
+not work either: the button only registers again 1–2 seconds after each press, so
+fast taps count as one. Any three Home
 presses within 10 seconds open recovery, which also protects against a KOReader
 that keeps closing: the third return opens recovery instead of KOReader. Recovery
 stays active across process restarts and reboots until you choose **Open KOReader

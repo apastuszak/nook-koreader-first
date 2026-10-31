@@ -271,7 +271,9 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
     - If KOReader was opened as an ordinary app (e.g. from Olauncher), Android instead returns to whatever task was behind it (an old Settings screen in one test). That is standard Android behavior, not a launcher bug.
     - Three crashes about 3 s apart: launch, launch, then `loop` → recovery screen. Crash-loop guard verified.
     - Reboot with the launcher paused: the default Home survived, Android started HomeActivity at boot (`paused`), and recovery was shown. `boot_count` went from 9 to 10.
-    - Not yet tested: a reboot while *not* paused (Home should open KOReader at boot); exiting KOReader from its own menu; KOReader missing.
+    - After resuming from recovery, a physical Home press logged `launch KOReader`, so the pause was cleared. A very quick tap on the capacitive button did **not** register at all (no `KEYCODE_HOME` in logcat); a touch of about 1 s did. The README tells users to hold each touch about a second.
+    - Reboot while *not* paused: Android started HomeActivity at boot (`launch KOReader`, about 23 s after the kernel started), and KOReader was in front. `boot_count` went from 10 to 11.
+    - Not yet tested: exiting KOReader from its own menu; KOReader missing (deliberately not tested, to keep the user's KOReader installed).
   - **Remote testing pitfalls on this Nook:**
     - After an ADB wake-up (`KEYCODE_WAKEUP`), the Nook shows B&N's own **"Slide to unlock" lock screen**, even though `lockscreen.disabled=1`. It goes back to sleep within seconds despite `screen_off_timeout=300000`; ADB input apparently does not count as user activity.
     - Home keys do nothing while the lock screen is up. This, not the launcher, explains the injected Home keys that "did nothing" during this session. An earlier claim that Home is swallowed while Olauncher is in front was made under these conditions and is **unconfirmed (probably wrong)**.
