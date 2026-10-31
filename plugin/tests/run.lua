@@ -196,7 +196,7 @@ local bt
 local function resetBt()
     bt = {
         available = true, enabled = true, state = "on", hid_ready = true, screen_on = true,
-        polls = 0, opened_settings = 0, scan_stops = 0, removed = {},
+        polls = 0, opened_settings = 0, scan_stops = 0, removed = {}, pair_failed = {},
         paired = {
             { address = "AA:00:00:00:00:01", name = "8BitDo Micro gamepad", remote = true, connection = "connected" },
         },
@@ -240,9 +240,7 @@ local function btTick()
         local p = bt.pairing
         p.step = p.step + 1
         p.next_at = bt.polls + 1
-        if p.step == 1 then
-            p.dev.bond = "bonding"
-        elseif p.dev.pairing_mode and p.step == 2 then
+        if p.dev.pairing_mode and p.step == 2 then
             p.dev.bond = "bonded"
             table.insert(bt.paired, p.dev)
         elseif p.dev.pairing_mode and p.step == 3 and not bt.no_auto_connect then
@@ -250,6 +248,7 @@ local function btTick()
             bt.pairing = nil
         elseif not p.dev.pairing_mode and p.step == 3 then
             p.dev.bond = "none"
+            bt.pair_failed[p.dev.address] = true -- the helper saw bonding -> none
             bt.pairing = nil
         end
     end
@@ -304,6 +303,7 @@ local function btCall(method, arg)
         local d = btFind(arg)
         local o = d and btDescribe(d) or { address = arg, bond = "none" }
         o.forgotten = bt.removed[arg] or false
+        o.pairFailed = bt.pair_failed[arg] or false
         return btReply({ device = o })
     elseif method == "btScan" then
         if not bt.enabled then return btError("bt_disabled") end
@@ -329,7 +329,9 @@ local function btCall(method, arg)
         return btReply({ devices = list, finished = finished })
     elseif method == "btScanStop" then
         bt.scan_stops = bt.scan_stops + 1
-        bt.scan_at = nil
+        -- The helper skips cancelDiscovery while bonding; it would cancel the
+        -- pairing's remote-name request (seen on the Nook).
+        if not bt.pairing then bt.scan_at = nil end
         return btReply()
     elseif method == "btPair" then
         if not bt.enabled then return btError("bt_disabled") end
@@ -337,7 +339,15 @@ local function btCall(method, arg)
         if d.bond == "bonded" then return btError("already_paired") end
         bt.scan_at = nil
         bt.removed[arg] = nil
-        bt.pairing = { dev = d, step = 0, next_at = bt.polls + 1 }
+        bt.pair_failed[arg] = nil
+        if bt.pair_fails_at_once then
+            -- Bonding -> none within one poll (70 ms on the Nook).
+            d.bond = "none"
+            bt.pair_failed[arg] = true
+            return btReply()
+        end
+        d.bond = "bonding" -- createBond reports bonding before it returns
+        bt.pairing = { dev = d, step = 1, next_at = bt.polls + 1 }
         return btReply()
     elseif method == "btForget" then
         if bt.forget_unsupported then return btError("not_supported") end
@@ -1185,6 +1195,11 @@ local function itemNamed(items, text)
     end
     error("no menu item " .. text)
 end
+-- Like KOReader's Menu:onMenuSelect: the item's callback, then close_callback.
+local function selectMenuItem(menu, i)
+    menu.item_table[i].callback()
+    if menu.close_callback then menu.close_callback() end
+end
 local function lastShownMenu()
     for i = #shown, 1, -1 do
         if shown[i].item_table then return shown[i] end
@@ -1459,8 +1474,9 @@ test("bt: pairing a new remote turns Bluetooth on, finds it and connects", funct
     eq(#menu.item_table, 2, "named, unpaired devices only")
     eq(menu.item_table[1].text, "Page Turner", "remote first")
     eq(menu.item_table[1].mandatory, "remote", "remote label")
-    menu.item_table[1].callback()
+    selectMenuItem(menu, 1)
     assert(closed[menu], "list not closed")
+    eq(bt.scan_stops, 0, "btScanStop after choosing a remote") -- would cancel the pairing
     runScheduled()
     eq(lastMessage(), "Connected to Page Turner.", "message")
     eq(plugin.busy, false, "busy")
@@ -1498,6 +1514,15 @@ test("bt: pairing fails when the remote is not in pairing mode", function()
     plugin:pairRemote(bt.nearby[1])
     runScheduled()
     eq(lastMessage(), "Could not pair with Page Turner. Put it in pairing mode and try again.", "message")
+end)
+
+test("bt: a pairing that fails between two polls is reported at once", function()
+    bt.pair_fails_at_once = true
+    local plugin = newBtPlugin()
+    plugin:pairRemote(bt.nearby[1])
+    runScheduled()
+    eq(lastMessage(), "Could not pair with Page Turner. Put it in pairing mode and try again.", "message")
+    assert(bt.polls <= 2, "waited for the timeout: " .. bt.polls .. " polls")
 end)
 
 test("bt: paired but not connected at the timeout", function()

@@ -76,6 +76,11 @@ final class BluetoothOps {
     // service is down or the call fails. In memory only: if Android kills the
     // helper mid-removal, the plugin times out and points to Android settings.
     private final Map<String, Boolean> removals = new HashMap<>();
+    // Pairings requested by pair(), by address: true once Android's broadcast
+    // reports bonding -> none. A failed pairing can pass in well under the
+    // plugin's 0.5 s poll (70 ms seen on the Nook), and getBondState()'s "none"
+    // is ambiguous for the same reason as above. Guarded by removals' lock.
+    private final Map<String, Boolean> pairings = new HashMap<>();
 
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override
@@ -99,10 +104,14 @@ final class BluetoothOps {
             } else if (BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(action)) {
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 int bond = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR);
+                int previous = intent.getIntExtra(BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE, BluetoothDevice.ERROR);
                 if (device != null && bond == BluetoothDevice.BOND_NONE) {
                     synchronized (removals) {
                         if (removals.containsKey(device.getAddress())) {
                             removals.put(device.getAddress(), true);
+                        }
+                        if (previous == BluetoothDevice.BOND_BONDING && pairings.containsKey(device.getAddress())) {
+                            pairings.put(device.getAddress(), true);
                         }
                     }
                 }
@@ -181,7 +190,8 @@ final class BluetoothOps {
 
     /**
      * One device by address (arg): the same fields as in listPaired, plus
-     * "forgotten" (true once Android reported the bond removed after btForget).
+     * "forgotten" (true once Android reported the bond removed after btForget)
+     * and "pairFailed" (true once Android reported a btPair attempt failed).
      */
     JSONObject device(String arg) {
         if (adapter == null) {
@@ -193,6 +203,7 @@ final class BluetoothOps {
         JSONObject device = describe(adapter.getRemoteDevice(arg));
         synchronized (removals) {
             Replies.put(device, "forgotten", Boolean.TRUE.equals(removals.get(arg)));
+            Replies.put(device, "pairFailed", Boolean.TRUE.equals(pairings.get(arg)));
         }
         return Replies.put(putState(Replies.ok()), "device", device);
     }
@@ -225,12 +236,31 @@ final class BluetoothOps {
         return putState(Replies.ok());
     }
 
-    /** Stops discovery early, e.g. when the plugin's list closes. */
+    /**
+     * Stops discovery early, e.g. when the plugin's list closes. Skipped while a
+     * pairing is in progress: cancelDiscovery also cancels the remote-name
+     * request that starts bonding, and the pairing then fails (seen on the Nook
+     * when the list's close came 30 ms after btPair). pair() already stopped
+     * discovery before bonding.
+     */
     JSONObject stopScan() {
-        if (adapter != null) {
+        if (adapter != null && !pairingInProgress()) {
             adapter.cancelDiscovery();
         }
         return putState(Replies.ok());
+    }
+
+    private boolean pairingInProgress() {
+        List<String> addresses;
+        synchronized (removals) {
+            addresses = new ArrayList<>(pairings.keySet());
+        }
+        for (String address : addresses) {
+            if (adapter.getRemoteDevice(address).getBondState() == BluetoothDevice.BOND_BONDING) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -282,12 +312,20 @@ final class BluetoothOps {
         if (device.getBondState() == BluetoothDevice.BOND_BONDED) {
             return putState(Replies.error("already_paired"));
         }
+        // Recorded before the request, so a broadcast that arrives at once counts.
         synchronized (removals) {
             removals.remove(arg);
+            pairings.put(arg, false);
         }
         // Discovery slows bonding down; Android recommends stopping it first.
         adapter.cancelDiscovery();
-        return putState(device.createBond() ? Replies.ok() : Replies.error("request_rejected"));
+        if (!device.createBond()) {
+            synchronized (removals) {
+                pairings.remove(arg);
+            }
+            return putState(Replies.error("request_rejected"));
+        }
+        return putState(Replies.ok());
     }
 
     /**
@@ -310,6 +348,7 @@ final class BluetoothOps {
         }
         // Recorded before the request, so a broadcast that arrives at once counts.
         synchronized (removals) {
+            pairings.remove(arg);
             removals.put(arg, false);
         }
         boolean removed = false;

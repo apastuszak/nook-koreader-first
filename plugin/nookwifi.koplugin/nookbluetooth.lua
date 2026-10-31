@@ -375,13 +375,14 @@ function NookWifi:showFoundRemotes(devices, touchmenu_instance)
         return
     end
     sortFound(new)
-    local menu
+    local menu, picked
     local items = {}
     for __, dev in ipairs(new) do
         table.insert(items, {
             text = deviceName(dev),
             mandatory = dev.remote and _("remote") or nil,
             callback = function()
+                picked = true
                 UIManager:close(menu)
                 self:pairRemote(dev, touchmenu_instance)
             end,
@@ -392,10 +393,11 @@ function NookWifi:showFoundRemotes(devices, touchmenu_instance)
         item_table = items,
         covers_fullscreen = true,
         is_popout = false,
-        -- Back or close: stop discovery. Choosing a remote closes the menu
-        -- directly; btPair stops discovery itself.
+        -- Back or close: stop discovery. Menu also calls this right after an
+        -- item's callback; btPair has stopped discovery by then, and stopping it
+        -- again would cancel the pairing's first step, so skip it.
         close_callback = function()
-            call("btScanStop")
+            if not picked then call("btScanStop") end
             UIManager:close(menu)
         end,
     }
@@ -409,16 +411,16 @@ function NookWifi:pairRemote(dev, touchmenu_instance)
     local finish = self:beginOperation(T(_("Pairing with %1…"), name), touchmenu_instance)
     local reply, msg = call("btPair", dev.address)
     if not reply then return finish(msg) end
-    local bonding_seen = false
     self:pollState(PAIR_TIMEOUT_S, finish, function(r)
         local d = r.device or {}
-        if d.bond == "bonding" then bonding_seen = true end
         if d.bond == "bonded" and d.connection == "connected" then
             self.bt_paired = nil
             finish(T(_("Connected to %1."), name))
             return true
         end
-        if d.bond == "none" and bonding_seen then
+        -- From Android's broadcast: a failed pairing can pass between two polls
+        -- (70 ms on the Nook), and bond == "none" is also what a failed query reads.
+        if d.pairFailed then
             finish(T(_("Could not pair with %1. Put it in pairing mode and try again."), name))
             return true
         end
