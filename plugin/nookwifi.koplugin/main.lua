@@ -310,8 +310,9 @@ end
 -- Returns finish(text, event_name), which ends the operation, shows text (if
 -- any), and broadcasts event_name (if any) so KOReader and other plugins (e.g.
 -- sync) see the change just as if NetworkMgr had made it. If the operation
--- announced NetworkConnecting and ends connected to any network without naming
--- an event, NetworkConnected is broadcast so listeners still learn it is online.
+-- announced NetworkConnecting and ends without naming an event, NetworkConnected
+-- or NetworkDisconnected is broadcast if Wi-Fi is connected or off, so listeners
+-- still learn how the attempt ended.
 function NookWifi:beginOperation(progress_text, touchmenu_instance)
     self.busy = true
     self.announced_connecting = false
@@ -326,6 +327,8 @@ function NookWifi:beginOperation(progress_text, touchmenu_instance)
             local state = self:getState(true)
             if state and state.connection == "connected" then
                 event_name = "NetworkConnected"
+            elseif state and (state.wifiState == "disabled" or state.wifiState == "disabling") then
+                event_name = "NetworkDisconnected"
             end
         end
         self.announced_connecting = false
@@ -413,6 +416,13 @@ function NookWifi:awaitNetwork(finish, fail, network_id, name)
         -- Success wins over any authentication failure recorded on the way.
         if s.connection == "connected" and s.networkId == network_id then
             finish(T(_("Connected to %1."), name), "NetworkConnected")
+            return true
+        end
+        -- Callers enter with Wi-Fi reported enabled, so this means it went off
+        -- again (switched off elsewhere, or the driver failed). It goes to fail,
+        -- so join still removes the network it created.
+        if s.wifiState == "disabled" or s.wifiState == "disabling" then
+            fail(_("Wi-Fi is off."))
             return true
         end
         -- authFailedNetworkId is -1 when Android had already cleared the network;

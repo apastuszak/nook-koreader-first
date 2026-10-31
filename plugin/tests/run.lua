@@ -450,6 +450,37 @@ test("connect times out", function()
     eq(lastMessage(), "Could not connect to Cafe. It may be out of range.", "message")
 end)
 
+test("connect stops when Wi-Fi goes off", function()
+    local plugin = newPlugin()
+    local start = polls
+    on_poll = function(n)
+        if n == start + 1 then wifi.connection = "disconnected" end
+        if n == start + 3 then wifi.enabled = false end
+    end
+    plugin:connectSaved(wifi.saved[1])
+    local before = polls
+    runScheduled()
+    eq(lastMessage(), "Wi-Fi is off.", "message")
+    assert(polls - before < 10, "kept polling after Wi-Fi went off")
+end)
+
+test("connect that turned Wi-Fi on reports Disconnected when it goes off again", function()
+    wifi.enabled = false
+    local plugin = newPlugin()
+    -- Comes on, never connects, and goes off a few polls after reaching "enabled".
+    local on_polls = 0
+    on_poll = function()
+        if wifi.enabled then on_polls = on_polls + 1 end
+        if on_polls == 4 then wifi.enabled = false end
+    end
+    wifi.connection = "disconnected"
+    plugin:connectSaved(wifi.saved[1])
+    runScheduled()
+    assert(has(events, "NetworkConnecting"), "NetworkConnecting not broadcast")
+    eq(lastMessage(), "Wi-Fi is off.", "message")
+    assert(has(events, "NetworkDisconnected"), "NetworkDisconnected not broadcast")
+end)
+
 test("connect turns Wi-Fi on first", function()
     wifi.enabled = false
     local plugin = newPlugin()
@@ -600,6 +631,19 @@ test("failed join never forgets the network that was connected before", function
         assert(id ~= 1, "forgot the previously connected network")
     end
     eq(wifi.forgotten[1], 10, "forgotten network")
+end)
+
+test("join stops when Wi-Fi goes off and removes the new network", function()
+    local plugin = newPlugin()
+    pressConnect(passwordDialogFor(plugin, "Neighbor", "correct horse"))
+    -- Replaces the fake join's own connect simulation.
+    local start = polls
+    on_poll = function(n) if n == start + 1 then wifi.enabled = false end end
+    local before = polls
+    runScheduled()
+    eq(lastMessage(), "Wi-Fi is off.", "message")
+    eq(wifi.forgotten[1], 10, "forgotten network")
+    assert(polls - before < 10, "kept polling after Wi-Fi went off")
 end)
 
 test("successful join is recognised even when the reply's networkId is the old network", function()
