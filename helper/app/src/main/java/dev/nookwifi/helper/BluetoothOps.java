@@ -11,6 +11,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.util.Log;
 
@@ -54,9 +55,10 @@ final class BluetoothOps {
     // the proxy rebinds by itself (seen in Stage 0). Null until bound.
     private volatile BluetoothProfile hid;
 
-    // Discovery results since the last btScan, by address. In memory only: if
-    // Android kills the helper mid-scan, the plugin times out and can scan again.
-    private final Map<String, JSONObject> found = new LinkedHashMap<>();
+    // Discovery results since the last btScan, by address, described when asked:
+    // Android often learns a device's name only after first finding it. In memory
+    // only: if Android kills the helper mid-scan, the plugin times out.
+    private final Map<String, BluetoothDevice> found = new LinkedHashMap<>();
     private volatile boolean scanRequested;
     // "Finished" counts only after Android confirmed this scan started: startScan
     // cancels any running discovery first, and that cancellation's FINISHED
@@ -72,9 +74,8 @@ final class BluetoothOps {
             if (BluetoothDevice.ACTION_FOUND.equals(action)) {
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
                 if (device != null && scanRequested) {
-                    JSONObject d = describe(device);
                     synchronized (found) {
-                        found.put(device.getAddress(), d);
+                        found.put(device.getAddress(), device);
                     }
                 }
             } else if (BluetoothAdapter.ACTION_DISCOVERY_STARTED.equals(action)) {
@@ -117,7 +118,9 @@ final class BluetoothOps {
     /**
      * Reply fields: available (false if the device has no Bluetooth),
      * bluetoothState (off|turning_on|on|turning_off|unknown), enabled, discovering,
-     * hidReady (whether remotes' connection states can be read yet).
+     * hidReady (whether remotes' connection states can be read yet), and screenOn
+     * (PowerManager.isInteractive). KOReader on Android sends the same event when
+     * the Nook sleeps and when another app opens; screenOn tells them apart.
      */
     JSONObject getState() {
         return putState(Replies.ok());
@@ -213,7 +216,8 @@ final class BluetoothOps {
         }
         JSONArray devices = new JSONArray();
         synchronized (found) {
-            for (JSONObject d : found.values()) {
+            for (BluetoothDevice device : found.values()) {
+                JSONObject d = describe(device);
                 if (d.has("name")) {
                     devices.put(d);
                 }
@@ -299,6 +303,10 @@ final class BluetoothOps {
     }
 
     private JSONObject putState(JSONObject reply) {
+        PowerManager power = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        if (power != null) {
+            Replies.put(reply, "screenOn", power.isInteractive());
+        }
         Replies.put(reply, "available", adapter != null);
         if (adapter == null) {
             return reply;

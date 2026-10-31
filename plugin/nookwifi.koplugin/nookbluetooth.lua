@@ -34,6 +34,11 @@ local PAIR_TIMEOUT_S = 30
 -- After a book closes, wait this long before turning Bluetooth off, so opening
 -- the next book straight away does not switch it off and on again.
 local CLOSE_DELAY_S = 5
+-- After Bluetooth turns on, watch this long for a remote to connect, so the
+-- menu and the user hear about it (the 8BitDo connected about 35 s after
+-- Bluetooth came on in one test: whenever its button was pressed).
+local CONNECT_WATCH_S = 60
+local CONNECT_WATCH_INTERVAL_S = 1
 local STATE_CACHE_S = 1
 
 local WHILE_READING = "nookbluetooth_while_reading"
@@ -45,9 +50,6 @@ local shared = {
     pending_off = nil,
     -- Bluetooth was turned off because the Nook went to sleep while reading.
     off_for_sleep = false,
-    -- The plugin opened Android's Bluetooth settings: KOReader goes to the
-    -- background then too (RequestSuspend), which must not turn Bluetooth off.
-    away = false,
 }
 
 local function whileReading()
@@ -149,9 +151,35 @@ local function cancelPendingOff()
     end
 end
 
+-- After Bluetooth turned on: tells the user once a paired remote connects, and
+-- refreshes the open menu, whose status line is otherwise only read when drawn.
+-- Stops when a remote connects, Bluetooth goes off, or after CONNECT_WATCH_S.
+function NookWifi:watchForRemote(touchmenu_instance)
+    local started = time.now()
+    local function tick()
+        local paired = call("btPaired")
+        if not paired or not paired.enabled then return end
+        for __, dev in ipairs(paired.devices or {}) do
+            if dev.connection == "connected" then
+                self.bt_cached, self.bt_paired = nil, nil
+                UIManager:show(InfoMessage:new{ text = T(_("%1 connected."), deviceName(dev)), timeout = 2 })
+                if touchmenu_instance then touchmenu_instance:updateItems() end
+                return
+            end
+        end
+        if time.to_s(time.since(started)) < CONNECT_WATCH_S then
+            UIManager:scheduleIn(CONNECT_WATCH_INTERVAL_S, tick)
+        end
+    end
+    UIManager:scheduleIn(CONNECT_WATCH_INTERVAL_S, tick)
+end
+
 -- Switches Bluetooth and reports once it has really changed.
 function NookWifi:setBluetooth(on, touchmenu_instance)
     if self.busy then return end
+    -- The user decides now; a turn-off still pending from a closed book must not
+    -- undo it (or cut into a pairing started right after closing a book).
+    cancelPendingOff()
     local reply, msg = call("btSetEnabled", on and "true" or "false")
     if not reply then
         UIManager:show(InfoMessage:new{ text = msg })
@@ -162,8 +190,9 @@ function NookWifi:setBluetooth(on, touchmenu_instance)
     local function fetch() return call("btState") end
     self:pollState(SWITCH_TIMEOUT_S, finish, function(s)
         if s.enabled ~= on or s.bluetoothState ~= (on and "on" or "off") then return false end
-        self.bt_cached = nil
+        self.bt_cached, self.bt_paired = nil, nil
         finish(on and _("Bluetooth on. Press a button on your remote to connect it.") or _("Bluetooth off."))
+        if on then self:watchForRemote(touchmenu_instance) end
         return true
     end, function()
         finish(on and T(_("Bluetooth did not turn on within %1 seconds."), SWITCH_TIMEOUT_S)
@@ -247,10 +276,8 @@ end
 
 -- Stock Android settings, opened by the helper (never the Nook's own screen).
 function NookWifi:openBluetoothSettings()
-    shared.away = true
     local reply, msg = call("btOpenSettings")
     if not reply then
-        shared.away = false
         UIManager:show(InfoMessage:new{ text = msg })
     end
 end
@@ -265,6 +292,7 @@ end
 
 function NookWifi:findRemotes(touchmenu_instance)
     if self.busy then return end
+    cancelPendingOff()
     local finish = self:beginOperation(_("Looking for remotes… Put your remote in pairing mode."), touchmenu_instance)
     self:ensureBluetooth(finish, function()
         local reply, msg = call("btScan")
@@ -335,6 +363,7 @@ end
 
 function NookWifi:pairRemote(dev, touchmenu_instance)
     if self.busy then return end
+    cancelPendingOff()
     local name = deviceName(dev)
     local finish = self:beginOperation(T(_("Pairing with %1…"), name), touchmenu_instance)
     local reply, msg = call("btPair", dev.address)
@@ -451,8 +480,9 @@ end
 
 -- "On while reading". These events reach the instance belonging to the open
 -- book. On Android, KOReader sends RequestSuspend whenever it goes to the
--- background (the Nook sleeping, or another app opening) and Resume when it
--- comes back.
+-- background and Resume when it comes back: when the Nook sleeps, but also when
+-- another app opens (Android Wi-Fi or Bluetooth settings, a dictionary, a link).
+-- Only sleep should turn Bluetooth off, so the helper's screenOn decides.
 
 function NookWifi:onReaderReady()
     if not whileReading() then return end
@@ -474,19 +504,16 @@ end
 function NookWifi:onRequestSuspend()
     -- Not while pairing: a remote that needs a PIN brings up Android's pairing
     -- dialog, which sends KOReader to the background too.
-    if not whileReading() or shared.away or self.busy or not (self.ui and self.ui.document) then return end
+    if not whileReading() or self.busy or not (self.ui and self.ui.document) then return end
     local state = call("btState")
-    if state and state.enabled then
+    -- screenOn is missing only from a helper too old for Bluetooth anyway.
+    if state and state.enabled and state.screenOn == false then
         shared.off_for_sleep = true
         switchQuietly(false, "sleeping")
     end
 end
 
 function NookWifi:onResume()
-    if shared.away then
-        shared.away = false
-        return
-    end
     if not whileReading() or not shared.off_for_sleep or not (self.ui and self.ui.document) then return end
     shared.off_for_sleep = false
     switchQuietly(true, "woke up")

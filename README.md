@@ -63,7 +63,7 @@ If a new network's password is wrong, the plugin says so and removes the network
 - **Open Android Bluetooth settings**: the stock Android screen (not the Nook's own, which cannot pair remotes).
 - The **Toggle Bluetooth** action can be assigned to a gesture or a key.
 
-After Bluetooth turns on, a remote usually reconnects only when you **press one of its buttons**; that first press may not turn a page.
+After Bluetooth turns on, a remote usually reconnects only when you **press one of its buttons**; that first press may not turn a page. For a minute after you turn Bluetooth on, the plugin tells you when a remote connects.
 
 ## Limitations
 

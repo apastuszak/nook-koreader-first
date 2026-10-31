@@ -194,7 +194,7 @@ end
 local bt
 local function resetBt()
     bt = {
-        available = true, enabled = true, state = "on", hid_ready = true,
+        available = true, enabled = true, state = "on", hid_ready = true, screen_on = true,
         polls = 0, opened_settings = 0, scan_stops = 0,
         paired = {
             { address = "AA:00:00:00:00:01", name = "8BitDo Micro gamepad", remote = true, connection = "connected" },
@@ -206,6 +206,11 @@ local function resetBt()
         },
         scan_len = 28,
     }
+end
+-- Starts a test with Bluetooth off; like the device, nothing is connected then.
+local function btStartOff()
+    bt.enabled, bt.state = false, "off"
+    for _, d in ipairs(bt.paired) do d.connection = "disconnected" end
 end
 local function btTick()
     bt.polls = bt.polls + 1
@@ -234,7 +239,7 @@ local function btTick()
     end
 end
 local function btReply(extra)
-    local r = { ok = true, protocol = 1, available = bt.available }
+    local r = { ok = true, protocol = 1, available = bt.available, screenOn = bt.screen_on }
     if bt.available then
         r.bluetoothState, r.enabled, r.hidReady = bt.state, bt.enabled, bt.hid_ready
         r.discovering = bt.scan_at ~= nil
@@ -416,7 +421,7 @@ local function test(name, fn)
     resetSettings()
     if NookWifi and NookWifi.bt_shared then
         local shared = NookWifi.bt_shared
-        shared.pending_off, shared.off_for_sleep, shared.away = nil, false, false
+        shared.pending_off, shared.off_for_sleep = nil, false
     end
     now, queue, shown, closed, events, stock_calls = 0, {}, {}, {}, {}, {}
     local ok, err = pcall(fn)
@@ -1165,7 +1170,7 @@ test("bt: menu renders with a connected remote", function()
 end)
 
 test("bt: status lines for off, no remote, unavailable and missing helper", function()
-    bt.enabled, bt.state = false, "off"
+    btStartOff()
     local _, items = newBtPlugin()
     eq(renderMenu(items)[1], "Status: Off", "off")
     resetBt()
@@ -1192,11 +1197,43 @@ test("bt: turning off reports only once Bluetooth is off", function()
 end)
 
 test("bt: turning on says to press a button on the remote", function()
-    bt.enabled, bt.state = false, "off"
+    btStartOff()
     local plugin = newBtPlugin()
     plugin:setBluetooth(true)
     runScheduled()
     eq(lastMessage(), "Bluetooth on. Press a button on your remote to connect it.", "message")
+end)
+
+test("bt: a remote connecting after Bluetooth turned on is announced and refreshes the menu", function()
+    btStartOff()
+    local plugin = newBtPlugin()
+    local updates = 0
+    local touchmenu = { updateItems = function() updates = updates + 1 end }
+    plugin:setBluetooth(true, touchmenu)
+    -- The user presses a button on the remote 20 s later.
+    local pressed = false
+    local orig = btCall
+    btCall = function(m, a)
+        if not pressed and now >= 20 and bt.enabled then
+            pressed = true
+            bt.paired[1].connection = "connected"
+        end
+        return orig(m, a)
+    end
+    runScheduled()
+    btCall = orig
+    eq(lastMessage(), "8BitDo Micro gamepad connected.", "message")
+    assert(updates >= 2, "menu not refreshed after the remote connected")
+    assert(now < 25, "kept watching after the remote connected")
+end)
+
+test("bt: watching for a remote gives up after a minute", function()
+    btStartOff()
+    local plugin = newBtPlugin()
+    plugin:setBluetooth(true)
+    runScheduled()
+    eq(lastMessage(), "Bluetooth on. Press a button on your remote to connect it.", "message")
+    assert(now <= 65, "watched for " .. now .. " s")
 end)
 
 test("bt: a rejected switch is reported", function()
@@ -1239,7 +1276,7 @@ test("bt: paired remotes list, connected first", function()
 end)
 
 test("bt: paired remotes asks to turn Bluetooth on when it is off", function()
-    bt.enabled, bt.state = false, "off"
+    btStartOff()
     local _, items = newBtPlugin()
     eq(renderMenu(itemNamed(items, "Paired remotes").sub_item_table_func())[1],
         "Turn on Bluetooth to see paired remotes.", "message")
@@ -1258,18 +1295,17 @@ end)
 
 test("bt: forget not supported points to Android Bluetooth settings", function()
     bt.forget_unsupported = true
-    local plugin, items = newBtPlugin()
+    local _, items = newBtPlugin()
     itemNamed(items, "Paired remotes").sub_item_table_func()[1].hold_callback()
     shown[#shown].ok_callback()
     local box = shown[#shown]
     eq(box.ok_text, "Bluetooth settings", "prompt button")
     box.ok_callback()
     eq(bt.opened_settings, 1, "opened settings")
-    eq(plugin.bt_shared.away, true, "marked away")
 end)
 
 test("bt: pairing a new remote turns Bluetooth on, finds it and connects", function()
-    bt.enabled, bt.state = false, "off"
+    btStartOff()
     local plugin = newBtPlugin()
     plugin:findRemotes()
     runScheduled()
@@ -1330,7 +1366,7 @@ end)
 
 test("bt: on while reading turns Bluetooth on when a book opens", function()
     settings_store.nookbluetooth_while_reading = true
-    bt.enabled, bt.state = false, "off"
+    btStartOff()
     local plugin = newBtPlugin(true)
     plugin:onReaderReady()
     runScheduled()
@@ -1340,7 +1376,7 @@ test("bt: on while reading turns Bluetooth on when a book opens", function()
 end)
 
 test("bt: nothing happens while the option is off", function()
-    bt.enabled, bt.state = false, "off"
+    btStartOff()
     local plugin = newBtPlugin(true)
     plugin:onReaderReady()
     plugin:onCloseDocument()
@@ -1372,9 +1408,11 @@ end)
 test("bt: sleeping while reading turns Bluetooth off, waking turns it on", function()
     settings_store.nookbluetooth_while_reading = true
     local plugin = newBtPlugin(true)
+    bt.screen_on = false -- the Nook turns the screen off before KOReader is paused
     plugin:onRequestSuspend()
     btTick(); btTick()
     eq(bt.enabled, false, "off while asleep")
+    bt.screen_on = true
     plugin:onResume()
     btTick(); btTick()
     eq(bt.enabled, true, "on after waking")
@@ -1383,6 +1421,7 @@ end)
 test("bt: sleeping in the file browser leaves Bluetooth alone", function()
     settings_store.nookbluetooth_while_reading = true
     local plugin = newBtPlugin(false)
+    bt.screen_on = false
     plugin:onRequestSuspend()
     eq(bt.state, "on", "state")
 end)
@@ -1390,35 +1429,51 @@ end)
 test("bt: Bluetooth switched off by hand stays off after waking", function()
     settings_store.nookbluetooth_while_reading = true
     local plugin = newBtPlugin(true)
-    bt.enabled, bt.state = false, "off"
+    btStartOff()
+    bt.screen_on = false
     plugin:onRequestSuspend()
+    bt.screen_on = true
     plugin:onResume()
     eq(bt.state, "off", "state")
 end)
 
-test("bt: opening Android Bluetooth settings does not count as sleeping", function()
+test("bt: another app opening while reading does not count as sleeping", function()
     settings_store.nookbluetooth_while_reading = true
     local plugin, items = newBtPlugin(true)
     itemNamed(items, "Open Android Bluetooth settings").callback()
-    plugin:onRequestSuspend() -- KOReader goes to the background
-    eq(bt.state, "on", "turned off for settings")
+    eq(bt.opened_settings, 1, "opened settings")
+    plugin:onRequestSuspend() -- KOReader goes to the background; the screen stays on
+    eq(bt.state, "on", "turned off for another app")
     plugin:onResume()
-    eq(plugin.bt_shared.away, false, "away cleared")
+    eq(bt.state, "on", "state after coming back")
+    bt.screen_on = false
     plugin:onRequestSuspend() -- now a real sleep
     eq(bt.state, "turning_off", "state")
+end)
+
+test("bt: closing a book, then pairing, cancels the pending turn-off", function()
+    settings_store.nookbluetooth_while_reading = true
+    local plugin = newBtPlugin(true)
+    plugin:onCloseDocument()
+    local browser = newBtPlugin(false) -- back in the file manager
+    browser:pairRemote(bt.nearby[1])
+    runScheduled()
+    eq(lastMessage(), "Connected to Page Turner.", "message")
+    eq(bt.state, "on", "state")
 end)
 
 test("bt: pairing in progress does not count as sleeping", function()
     settings_store.nookbluetooth_while_reading = true
     local plugin = newBtPlugin(true)
     plugin:pairRemote(bt.nearby[1])
+    bt.screen_on = false -- even if the screen also went off
     plugin:onRequestSuspend() -- e.g. Android's PIN dialog
     eq(bt.state, "on", "state")
     runScheduled()
 end)
 
 test("bt: turning the option on while reading turns Bluetooth on", function()
-    bt.enabled, bt.state = false, "off"
+    btStartOff()
     local _, items = newBtPlugin(true)
     itemNamed(items, "On while reading").callback()
     eq(settings_store.nookbluetooth_while_reading, true, "setting")
