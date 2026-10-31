@@ -32,6 +32,9 @@ import java.util.Set;
  * Bluetooth (page-turner remotes): btState, btSetEnabled(arg "true"|"false"),
  * btPaired, btDevice(arg address), btScan, btScanStop, btScanResults,
  * btPair(arg address), btForget(arg address), btOpenSettings. See BluetoothOps.
+ *
+ * Power-off timer: powerOffGet, powerOffSet(arg milliseconds), powerOffOpenSettings.
+ * See PowerOps.
  */
 public class HelperProvider extends ContentProvider {
     static final String TAG = "NookWifi";
@@ -46,11 +49,13 @@ public class HelperProvider extends ContentProvider {
 
     private WifiOps wifi;
     private BluetoothOps bluetooth;
+    private PowerOps power;
 
     @Override
     public boolean onCreate() {
         wifi = new WifiOps(getContext());
         bluetooth = new BluetoothOps(getContext());
+        power = new PowerOps(getContext());
         return true;
     }
 
@@ -123,6 +128,12 @@ public class HelperProvider extends ContentProvider {
                 return bluetooth.forget(arg);
             case "btOpenSettings":
                 return bluetooth.openSettings();
+            case "powerOffGet":
+                return power.get();
+            case "powerOffSet":
+                return power.set(arg);
+            case "powerOffOpenSettings":
+                return power.openSettings();
             default:
                 return Replies.error("unknown_method");
         }

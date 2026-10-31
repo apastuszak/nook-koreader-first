@@ -109,6 +109,8 @@ end
 
 -- Bluetooth page-turner remotes (Settings → Network → Nook Bluetooth).
 require("nookbluetooth")(NookWifi, errorText)
+-- The Nook's power-off timer (Settings → Device → Power off after sleeping).
+require("nookpower")(NookWifi, errorText)
 
 -- Returns the helper's getState reply, or nil and a message.
 function NookWifi:getState(fresh)
@@ -154,6 +156,7 @@ end
 
 function NookWifi:addToMainMenu(menu_items)
     self:addBluetoothMenu(menu_items)
+    self:addPowerMenu(menu_items)
     local function available()
         return not self.busy and self:getState() ~= nil
     end

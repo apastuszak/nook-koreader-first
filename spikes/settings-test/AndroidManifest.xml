@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Power-off timer throwaway: can a normal app (targetSdk 27, no root) write the
+     Nook's hidden power_off_timeout system setting with WRITE_SETTINGS? Driven over
+     ADB with `adb shell content call`; accepts only the ADB shell. Uninstall after testing. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.nookwifi.settingsspike">
+
+    <!-- Special app op on API 23+: granted with `appops set ... WRITE_SETTINGS allow`
+         or the "Modify system settings" screen. -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+
+    <application android:label="Settings Spike">
+        <provider
+            android:name=".SettingsProvider"
+            android:authorities="dev.nookwifi.settingsspike"
+            android:exported="true" />
+    </application>
+</manifest>

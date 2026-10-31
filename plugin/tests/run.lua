@@ -64,7 +64,10 @@ package.preload["ui/widget/container/widgetcontainer"] = function()
     return { extend = function(_, o) return o end }
 end
 package.preload["gettext"] = function()
-    return setmetatable({}, { __call = function(_, s) return s end })
+    -- Like KOReader's gettext: _("msgid"), and _.ngettext(singular, plural, n).
+    return setmetatable({
+        ngettext = function(singular, plural, n) return n == 1 and singular or plural end,
+    }, { __call = function(_, s) return s end })
 end
 package.preload["ffi/util"] = function()
     return {
@@ -165,6 +168,9 @@ local function resetWifi()
         forgotten = {},
         forget_allowed = true, -- false behaves like this Nook's firmware
         join_args = nil,
+        -- The power-off timer (helper PowerOps): power_off_timeout in ms, whether the
+        -- user allowed "Modify system settings", and how often its screen was opened.
+        power = { ms = 0, write_allowed = false, opened = 0 },
     }
     helper_missing, on_poll, polls = false, nil, 0
 end
@@ -444,6 +450,25 @@ package.preload["nookwifihelper"] = function()
             elseif method:sub(1, 2) == "bt" then
                 local reply = btCall(method, arg)
                 if reply then return reply end
+            elseif method:sub(1, 8) == "powerOff" and wifi.power_unsupported then
+                return { ok = false, error = "unknown_method", protocol = 1 } -- helper before 1.1.0
+            elseif method:sub(1, 8) == "powerOff" and wifi.power_no_value and method ~= "powerOffOpenSettings" then
+                return { ok = true, protocol = 1 } -- a broken helper build: no timeoutMs
+            elseif method == "powerOffGet" then
+                return { ok = true, protocol = 1, timeoutMs = wifi.power.ms }
+            elseif method == "powerOffSet" then
+                -- Like PowerRules: only the fixed list, as decimal milliseconds.
+                local allowed = { ["0"] = 0, ["3600000"] = 3600000, ["21600000"] = 21600000,
+                    ["86400000"] = 86400000, ["259200000"] = 259200000, ["604800000"] = 604800000 }
+                if not allowed[arg] then return { ok = false, error = "bad_argument", protocol = 1 } end
+                if not wifi.power.write_allowed then
+                    return { ok = false, error = "write_settings_needed", protocol = 1 }
+                end
+                wifi.power.ms = allowed[arg]
+                return { ok = true, protocol = 1, timeoutMs = wifi.power.ms }
+            elseif method == "powerOffOpenSettings" then
+                wifi.power.opened = wifi.power.opened + 1
+                return { ok = true, protocol = 1 }
             end
             return { ok = false, error = "unknown_method", protocol = 1 }
         end,
@@ -1659,6 +1684,115 @@ test("bt: turning the option on while reading turns Bluetooth on", function()
     itemNamed(items, "On while reading").callback()
     eq(settings_store.nookbluetooth_while_reading, true, "setting")
     eq(bt.state, "turning_on", "state")
+end)
+
+-- Power-off timer ----------------------------------------------------------
+
+local function newPowerPlugin()
+    local menu_items = {}
+    local plugin = setmetatable({ ui = { menu = { registerToMainMenu = function() end } } }, { __index = NookWifi })
+    plugin:init()
+    plugin:addToMainMenu(menu_items)
+    return plugin, menu_items.nookpower
+end
+local function fakeTouchMenu()
+    local tm = { updates = 0 }
+    function tm:updateItems() self.updates = self.updates + 1 end
+    return tm
+end
+
+test("power: menu shows the current timeout", function()
+    local _, item = newPowerPlugin()
+    eq(item.sorting_hint, "device", "menu section")
+    eq(item.text_func(), "Power off after sleeping: Never", "text")
+    eq(item.enabled_func(), true, "enabled")
+    local items = item.sub_item_table_func()
+    local texts = {}
+    for _, it in ipairs(items) do table.insert(texts, it.text) end
+    eq(table.concat(texts, ", "), "Never, 1 hour, 6 hours, 1 day, 3 days, 1 week, About this setting", "choices")
+    eq(items[1].checked_func(), true, "Never checked")
+    eq(items[4].checked_func(), false, "1 day not checked")
+end)
+
+test("power: choosing without permission asks to allow it, then opens the screen", function()
+    local _, item = newPowerPlugin()
+    local items = item.sub_item_table_func()
+    items[4].callback(fakeTouchMenu()) -- 1 day
+    eq(wifi.power.ms, 0, "changed without permission")
+    local box = shown[#shown]
+    assert(box.ok_callback, "no prompt")
+    assert(box.text:find("modify system settings", 1, true), box.text)
+    eq(box.ok_text, "Open", "button")
+    box.ok_callback()
+    eq(wifi.power.opened, 1, "settings screen opened")
+end)
+
+test("power: choosing with permission sets it and reports the value read back", function()
+    wifi.power.write_allowed = true
+    local _, item = newPowerPlugin()
+    local items = item.sub_item_table_func()
+    local tm = fakeTouchMenu()
+    items[4].callback(tm) -- 1 day
+    eq(wifi.power.ms, 86400000, "power_off_timeout")
+    eq(lastMessage(), "The Nook will power off after sleeping for 1 day.", "message")
+    eq(tm.updates, 1, "menu refreshed")
+    eq(items[4].checked_func(), true, "1 day checked") -- not served from the old cache
+    eq(item.text_func(), "Power off after sleeping: 1 day", "text")
+    items[1].callback(tm) -- Never
+    eq(wifi.power.ms, 0, "back to never")
+    eq(lastMessage(), "The Nook will not power off by itself.", "message")
+end)
+
+test("power: a value set some other way is shown and checked", function()
+    wifi.power.ms = 120000 -- e.g. over ADB
+    local _, item = newPowerPlugin()
+    eq(item.text_func(), "Power off after sleeping: 2 minutes", "text")
+    local items = item.sub_item_table_func()
+    local custom = items[7]
+    eq(custom.text, "Custom: 2 minutes", "custom item")
+    eq(custom.checked_func(), true, "custom checked")
+    eq(custom.enabled_func(), false, "custom not selectable")
+    eq(items[1].checked_func(), false, "Never not checked")
+end)
+
+test("power: odd values set some other way are shown as stored", function()
+    for _, case in ipairs({ { 30000, "30 seconds" }, { 1000, "1 second" }, { 90 * 60000, "90 minutes" },
+            { 14 * 86400000, "14 days" }, { -5, "-5 ms" } }) do
+        wifi.power.ms = case[1]
+        local _, item = newPowerPlugin()
+        eq(item.text_func(), "Power off after sleeping: " .. case[2], "text for " .. case[1])
+    end
+end)
+
+test("power: a reply without a value does not crash the menu or the change", function()
+    wifi.power.write_allowed = true
+    wifi.power_no_value = true
+    local plugin, item = newPowerPlugin()
+    eq(item.text_func(), "Power off after sleeping", "text")
+    eq(item.enabled_func(), false, "enabled")
+    plugin:setPowerOffTimeout(86400000)
+    assert(lastMessage():find("bad_reply", 1, true), lastMessage())
+end)
+
+test("power: without the helper the menu is disabled", function()
+    helper_missing = true
+    local _, item = newPowerPlugin()
+    eq(item.text_func(), "Power off after sleeping", "text")
+    eq(item.enabled_func(), false, "enabled")
+end)
+
+test("power: an older helper without the timer disables the menu", function()
+    wifi.power_unsupported = true
+    local _, item = newPowerPlugin()
+    eq(item.text_func(), "Power off after sleeping", "text")
+    eq(item.enabled_func(), false, "enabled")
+end)
+
+test("power: an older helper reports it is out of date when choosing", function()
+    local plugin = newPowerPlugin()
+    wifi.power_unsupported = true
+    plugin:setPowerOffTimeout(86400000)
+    eq(lastMessage(), "Nook Wi-Fi Helper is out of date. Update it.", "message")
 end)
 
 print(string.format("\n%d passed, %d failed", passed, failed))

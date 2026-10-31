@@ -12,6 +12,11 @@
     <!-- Runtime permission: needed for scan results and the current SSID (Stage 0 Test 1),
          and for Bluetooth discovery. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Power-off timer (the Nook's hidden power_off_timeout setting). A special app op:
+         the user allows it on Android's "Modify system settings" screen. -->
+    <uses-permission
+        android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
 
     <application
         android:allowBackup="false"
