@@ -33,9 +33,10 @@ public class LaunchGuardTest {
     }
 
     @Test public void corruptOrUnknownClockFailsClosed() {
-        assertEquals(LaunchGuard.Decision.LOOP, LaunchGuard.enter("oops", 9, 9, 100).decision);
-        assertEquals(LaunchGuard.Decision.LOOP, LaunchGuard.enter("200", 9, 9, 100).decision);
-        assertEquals(LaunchGuard.Decision.LOOP, LaunchGuard.enter("", -1, -1, 100).decision);
+        // Fails closed, but reported as "guard unavailable", not as a loop.
+        assertEquals(LaunchGuard.Decision.UNAVAILABLE, LaunchGuard.enter("oops", 9, 9, 100).decision);
+        assertEquals(LaunchGuard.Decision.UNAVAILABLE, LaunchGuard.enter("200", 9, 9, 100).decision);
+        assertEquals(LaunchGuard.Decision.UNAVAILABLE, LaunchGuard.enter("", -1, -1, 100).decision);
     }
 
     @Test public void historyIsBounded() {

@@ -3,8 +3,11 @@
     <!-- No network, storage, accessibility or device-admin permissions. -->
     <application android:allowBackup="false" android:label="@string/app_name"
         android:icon="@drawable/ic_launcher" android:theme="@style/LauncherTheme">
+        <!-- NoDisplay: it only redirects, so no window (and no e-ink refresh) is drawn.
+             Every path through HomeActivity calls finish() in onCreate, as NoDisplay requires. -->
         <activity android:name=".HomeActivity" android:exported="true"
-            android:launchMode="singleTask" android:excludeFromRecents="true">
+            android:launchMode="singleTask" android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.NoDisplay">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />

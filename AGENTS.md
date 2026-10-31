@@ -280,6 +280,19 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
     - `screencap` returns a black image while asleep. `uiautomator dump` fails ("null root node").
     - Trust `dumpsys window` (`mCurrentFocus`), `dumpsys power` (`mWakefulness`) and logcat. Check wakefulness and the lock screen before interpreting any injected-key result. Physical presses with the Nook unlocked always reached the launcher.
 
+- **Launcher 0.1.3: code review and security pass (2026-10-30).**
+  - Fixed:
+    - `make logs-launcher` had an unclosed quote (introduced in 0.1.1).
+    - Fail-closed guard cases (unreadable history, unknown boot count or clock) now return `Decision.UNAVAILABLE` and show "guard unavailable" instead of the loop message.
+    - `HomeActivity` uses `@android:style/Theme.NoDisplay`, so a Home press no longer draws a white starting window and forces an extra e-ink refresh. Every path finishes in `onCreate`, which NoDisplay requires; verified on device with no crash, and the user confirmed the white flash is gone.
+    - `LaunchState.pause()` now reports a failed write, and screens say "storage" instead of claiming to be paused. The pause flag is written only where it is not already saved.
+    - Back on the recovery screen no longer overwrites the reason message.
+    - `make clean` also cleans `launcher/`, and `check` depends on `check-launcher` instead of duplicating it.
+  - Declined: moving the shared signing properties out of `helper/`. It is the same release key on purpose, and the 1Password restore steps point there.
+  - Security:
+    - No manifest permissions and no data beyond the guard's own timestamps. The app list only opens apps the user picks.
+    - Accepted nuisance: HomeActivity and RecoveryActivity must be exported (for Home and the app drawer), so another installed app could start them to pause the launcher. That is the same effect as pressing Home 3 times; it grants no data or privileges, and one tap resumes.
+
 - **Future: Bluetooth page-turner support from KOReader** (the user asked on 2026-10-30; not started). **Scope: page-turner remotes only.** Headphones and audio are explicitly out of scope. The goal: turn Bluetooth on, pair or reconnect a remote (KOReader treats it as a keyboard), then turn it off to save battery.
   - Verified so far: the Nook reports `android.hardware.bluetooth` and `bluetooth_le`, `bluetooth_manager` runs, and `bluetooth_on` was 1 (on).
   - Approach: extend the existing helper and plugin; no separate app.

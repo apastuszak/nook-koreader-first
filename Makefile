@@ -31,9 +31,8 @@ build:
 	cd helper && ./gradlew --console=plain assembleDebug
 
 # Lint plus offline tests; nothing here touches the device.
-check:
+check: check-launcher
 	cd helper && ./gradlew --console=plain lint testDebugUnitTest
-	cd launcher && ./gradlew --console=plain lint testDebugUnitTest
 	$(LUACHECK) --no-color $(PLUGIN) plugin/tests
 	luajit plugin/tests/run.lua
 	luajit plugin/tests/jni.lua
@@ -65,6 +64,7 @@ uninstall:
 
 clean:
 	cd helper && ./gradlew --console=plain clean
+	cd launcher && ./gradlew --console=plain clean
 
 # Signed release APK. Needs helper/keystore.properties (never committed) pointing
 # at the release key. Release builds accept only KOReader as a caller, so
@@ -117,4 +117,4 @@ uninstall-launcher:
 	adb uninstall $(LAUNCHER_PKG)
 
 logs-launcher:
-	adb logcat -v time | grep --line-buffered -E 'KOReaderHome|KEYCODE_HOME
+	adb logcat -v time | grep --line-buffered -E 'KOReaderHome|KEYCODE_HOME'

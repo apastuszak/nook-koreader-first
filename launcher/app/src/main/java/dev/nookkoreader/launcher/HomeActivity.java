@@ -32,9 +32,11 @@ public final class HomeActivity extends Activity {
             finish();
             return;
         }
-        state.pause();
+        // Every non-null reason was already saved as paused by enter(); only a
+        // failed KOReader launch still needs the flag written.
+        if (reason == null) reason = state.pause() ? "missing" : "storage";
         Intent recovery = new Intent(this, RecoveryActivity.class);
-        recovery.putExtra("reason", reason == null ? "missing" : reason);
+        recovery.putExtra("reason", reason);
         recovery.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         startActivity(recovery);
         finish();

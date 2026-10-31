@@ -13,7 +13,9 @@ import java.util.List;
  */
 final class LaunchGuard {
     static final long LOOP_MS = 10000;
-    enum Decision { LAUNCH, LOOP }
+    // UNAVAILABLE: history unreadable or the clock/boot count unknown, so the guard
+    // cannot tell; it fails closed, but is not a loop.
+    enum Decision { LAUNCH, LOOP, UNAVAILABLE }
 
     private LaunchGuard() { }
 
@@ -33,14 +35,14 @@ final class LaunchGuard {
             try {
                 for (String part : history.split(",")) {
                     long t = Long.parseLong(part);
-                    if (t < 0 || t > now) return new Result(Decision.LOOP, "");
+                    if (t < 0 || t > now) return new Result(Decision.UNAVAILABLE, "");
                     if (now - t <= LOOP_MS) recent.add(t);
                 }
             } catch (NumberFormatException e) {
-                return new Result(Decision.LOOP, "");
+                return new Result(Decision.UNAVAILABLE, "");
             }
         }
-        if (boot < 0 || now < 0) return new Result(Decision.LOOP, "");
+        if (boot < 0 || now < 0) return new Result(Decision.UNAVAILABLE, "");
         recent.add(now);
         Decision decision = recent.size() >= 3 ? Decision.LOOP : Decision.LAUNCH;
         StringBuilder out = new StringBuilder();

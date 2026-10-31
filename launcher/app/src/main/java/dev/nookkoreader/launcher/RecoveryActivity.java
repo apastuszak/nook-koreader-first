@@ -19,10 +19,12 @@ import java.util.List;
 /** Always-accessible launcher icon and latched escape screen. No privileged operations. */
 public final class RecoveryActivity extends Activity {
     private TextView status;
+    // False if the pause flag could not be saved when this screen opened.
+    private boolean pausedOk = true;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        new LaunchState(this).pause();
+        pausedOk = new LaunchState(this).pause();
         ScrollView scroll = new ScrollView(this);
         scroll.setBackgroundColor(0xffffffff);
         LinearLayout root = new LinearLayout(this);
@@ -59,7 +61,7 @@ public final class RecoveryActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        new LaunchState(this).pause();
+        pausedOk = new LaunchState(this).pause();
         explain(intent);
     }
 
@@ -69,6 +71,8 @@ public final class RecoveryActivity extends Activity {
         if ("loop".equals(reason)) message = R.string.loop;
         if ("missing".equals(reason)) message = R.string.missing;
         if ("storage".equals(reason)) message = R.string.storage;
+        if ("unavailable".equals(reason)) message = R.string.guard_unavailable;
+        if (!pausedOk) message = R.string.storage;
         status.setText(message);
     }
 
@@ -76,13 +80,12 @@ public final class RecoveryActivity extends Activity {
         LaunchState state = new LaunchState(this);
         String reason = state.enter(true);
         if (reason != null) {
-            state.pause();
-            status.setText("storage".equals(reason) ? R.string.storage : R.string.guard_unavailable);
+            boolean saved = state.pause();
+            status.setText(!saved || "storage".equals(reason) ? R.string.storage : R.string.guard_unavailable);
         } else if (AppLaunch.openPackage(this, AppLaunch.KOREADER)) {
             finish();
         } else {
-            state.pause();
-            status.setText(R.string.missing);
+            status.setText(state.pause() ? R.string.missing : R.string.storage);
         }
     }
 
@@ -110,8 +113,8 @@ public final class RecoveryActivity extends Activity {
     }
 
     // Back must not finish the recovery HOME task and re-enter an automatic loop.
+    // It is ignored without replacing the message explaining why recovery opened.
     @Override public void onBackPressed() {
-        status.setText(R.string.paused);
     }
 
     private void unavailable() { status.setText(R.string.unavailable); }

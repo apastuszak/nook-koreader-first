@@ -24,11 +24,13 @@ final class LaunchState {
         boolean paused = result.decision != LaunchGuard.Decision.LAUNCH;
         if (!prefs.edit().putString("history", result.history).putInt("boot", boot)
                 .putBoolean("paused", paused).commit()) return "storage";
+        if (result.decision == LaunchGuard.Decision.UNAVAILABLE) return "unavailable";
         return paused ? "loop" : null;
     }
 
+    /** Returns false if the pause flag could not be saved. */
     @SuppressLint("ApplySharedPref")
-    void pause() {
-        prefs.edit().putBoolean("paused", true).commit();
+    boolean pause() {
+        return prefs.edit().putBoolean("paused", true).commit();
     }
 }
