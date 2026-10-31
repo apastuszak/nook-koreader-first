@@ -10,6 +10,9 @@ LUACHECK ?= $(HOME)/.luarocks/bin/luacheck
 HELPER_PKG := dev.nookwifi.helper
 APK := helper/app/build/outputs/apk/debug/app-debug.apk
 RELEASE_APK := helper/app/build/outputs/apk/release/app-release.apk
+LAUNCHER_PKG := dev.nookkoreader.launcher
+LAUNCHER_APK := launcher/app/build/outputs/apk/release/app-release.apk
+LAUNCHER_VERSION := $(shell sed -n 's/.*versionName = "\(.*\)"/\1/p' launcher/app/build.gradle.kts)
 PLUGIN := plugin/nookwifi.koplugin
 DEVICE_PLUGINS := /sdcard/koreader/plugins
 # Helper and plugin share one version number; dist checks they agree.
@@ -30,6 +33,7 @@ build:
 # Lint plus offline tests; nothing here touches the device.
 check:
 	cd helper && ./gradlew --console=plain lint testDebugUnitTest
+	cd launcher && ./gradlew --console=plain lint testDebugUnitTest
 	$(LUACHECK) --no-color $(PLUGIN) plugin/tests
 	luajit plugin/tests/run.lua
 	luajit plugin/tests/jni.lua
@@ -75,14 +79,42 @@ install-release: release
 	adb install -r $(RELEASE_APK)
 
 # Everything a user needs: signed APK, plugin zip, checksums.
-dist: check release
+dist: check release release-launcher
 	@test "$(VERSION)" = "$(PLUGIN_VERSION)" || { echo "Version mismatch: helper $(VERSION), plugin $(PLUGIN_VERSION)"; exit 1; }
 	grep -q 'version = "$(VERSION)"' $(PLUGIN)/_meta.lua || { echo "_meta.lua version is not $(VERSION)"; exit 1; }
 	$(APKSIGNER) verify $(RELEASE_APK)
 	@$(APKSIGNER) verify --print-certs $(RELEASE_APK) 2>/dev/null | grep -q 'certificate SHA-256 digest: $(RELEASE_CERT_SHA256)' \
 		|| { echo "APK is not signed with the release key ($(RELEASE_CERT_SHA256))"; exit 1; }
+	$(APKSIGNER) verify $(LAUNCHER_APK)
+	@$(APKSIGNER) verify --print-certs $(LAUNCHER_APK) 2>/dev/null | grep -q 'certificate SHA-256 digest: $(RELEASE_CERT_SHA256)' \
+		|| { echo "Launcher APK is not signed with the release key"; exit 1; }
 	rm -rf $(DIST) && mkdir -p $(DIST)
 	cp $(RELEASE_APK) $(DIST)/nookwifi-helper-$(VERSION).apk
+	cp $(LAUNCHER_APK) $(DIST)/koreader-home-$(LAUNCHER_VERSION).apk
 	cd plugin && zip -qrX ../$(DIST)/nookwifi.koplugin-$(VERSION).zip nookwifi.koplugin -x '*.DS_Store'
 	cd $(DIST) && shasum -a 256 *.apk *.zip > SHA256SUMS
 	@ls -la $(DIST)
+
+# Separate optional launcher. None of these targets changes the default Home app.
+.PHONY: build-launcher check-launcher release-launcher install-launcher launcher-recovery uninstall-launcher logs-launcher
+build-launcher:
+	cd launcher && ./gradlew --console=plain assembleDebug
+
+check-launcher:
+	cd launcher && ./gradlew --console=plain lint testDebugUnitTest
+
+release-launcher:
+	@test -f helper/keystore.properties || { echo "helper/keystore.properties is missing"; exit 1; }
+	cd launcher && ./gradlew --console=plain assembleRelease
+
+install-launcher: check release-launcher
+	adb install -r $(LAUNCHER_APK)
+
+launcher-recovery:
+	adb shell am start -n $(LAUNCHER_PKG)/.RecoveryActivity
+
+uninstall-launcher:
+	adb uninstall $(LAUNCHER_PKG)
+
+logs-launcher:
+	adb logcat -v time | grep --line-buffered -E 'KOReaderHome|KEYCODE_HOME

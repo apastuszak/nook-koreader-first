@@ -88,6 +88,66 @@ Networks you joined stay saved in Android.
 | "Wrong password for …" on a saved network | Forget the network in Android Wi-Fi settings, then join it again from **Scan for networks…**. |
 | "Could not connect to X. Connected to Y instead." | Android could not reach X (out of range or rejected) and went back to another saved network. |
 
+## Optional: KOReader Home launcher
+
+**KOReader Home** is a separate app (`dev.nookkoreader.launcher`), independent of
+the Wi-Fi helper and plugin. When selected as the default Home app, it opens
+KOReader whenever Home is invoked. It requests no permissions and uses no
+network access. Version 0.1.0 is ready for device testing as the default launcher;
+the physical Home shortcut still needs that final test.
+
+Install `koreader-home-0.1.0.apk` from `dist/`, or use:
+
+```sh
+make install-launcher
+```
+
+Installing does not select KOReader Home as your default. Android may clear the
+previous Home preference when a new Home app is installed; if prompted during
+testing, select **Olauncher**. Keep Olauncher installed.
+
+Open **KOReader Home** from Olauncher to reach its recovery screen. It offers:
+
+- **Open KOReader and resume Home**: opens KOReader and enables automatic opening.
+- **Open Olauncher**: opens Olauncher without changing the default Home app.
+- **Choose default Home app**: opens Android's default-app settings (on this Nook,
+  select **Home app** on that screen). This is where you can switch back to Olauncher.
+- **Android Settings** and **All apps**.
+
+Once KOReader Home is the default, press **Home 3 times, about 2 seconds apart**,
+to open recovery. Quick taps do not work: the Nook's Home button only registers
+again 1–2 seconds after each press, so fast taps count as one. Any three Home
+presses within 10 seconds open recovery, which also protects against a KOReader
+that keeps closing: the third return opens recovery instead of KOReader. Recovery
+stays active across process restarts and reboots until you choose **Open KOReader
+and resume Home**. KOReader missing or unable to open also leads to recovery.
+Opening the app icon always goes directly to recovery.
+
+To open recovery over USB:
+
+```sh
+adb shell am start -n dev.nookkoreader.launcher/.RecoveryActivity
+```
+
+To restore Olauncher over USB:
+
+```sh
+adb shell cmd package set-home-activity app.olauncher/.MainActivity
+adb shell input keyevent KEYCODE_HOME
+```
+
+To remove only the launcher, first restore Olauncher, then run:
+
+```sh
+adb uninstall dev.nookkoreader.launcher
+```
+
+Updates use `adb install -r koreader-home-<version>.apk`; the signing key must
+match. The launcher's version is independent of the Wi-Fi helper/plugin version.
+`make build-launcher` builds a debug APK; `make check-launcher` runs its lint and
+unit tests; `make release-launcher` signs it using the existing release key.
+`make dist` includes the launcher APK and its checksum alongside the Wi-Fi files.
+
 ## Building from source
 
 On macOS with Homebrew you need JDK 21, the Android command-line tools (SDK platforms 27 and 35), LuaJIT, and luacheck. `AGENTS.md` lists the exact setup, the verified device behavior, and the design.
