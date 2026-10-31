@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bluetooth Stage 0 throwaway: what can a normal app (targetSdk 27, no root) do with
+     Bluetooth on the Nook? Driven over ADB with `adb shell content call`; accepts only
+     the ADB shell. Uninstall after testing. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.nookwifi.btspike">
+
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <!-- Discovery results need location on API 23+. Granted with pm grant. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <application android:label="Bluetooth Spike">
+        <provider
+            android:name=".BtProvider"
+            android:authorities="dev.nookwifi.btspike"
+            android:exported="true" />
+    </application>
+</manifest>

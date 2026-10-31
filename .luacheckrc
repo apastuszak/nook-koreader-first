@@ -4,3 +4,5 @@ std = "luajit"
 self = false
 unused_args = false
 max_line_length = 140
+-- KOReader's global settings object.
+read_globals = { "G_reader_settings" }

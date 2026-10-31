@@ -5,7 +5,12 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- Runtime permission: needed for scan results and the current SSID (Stage 0 Test 1). -->
+    <!-- Page-turner remotes: Bluetooth on/off, paired devices, pairing (Bluetooth Stage 0).
+         Both are granted at install. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+    <!-- Runtime permission: needed for scan results and the current SSID (Stage 0 Test 1),
+         and for Bluetooth discovery. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <application

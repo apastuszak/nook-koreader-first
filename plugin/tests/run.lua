@@ -43,7 +43,12 @@ package.preload["ui/uimanager"] = function()
         end,
         scheduleIn = function(_, delay, fn, ...)
             local args = { ... }
-            table.insert(queue, { delay = delay, fn = function() fn(unpack(args)) end })
+            table.insert(queue, { delay = delay, orig = fn, fn = function() fn(unpack(args)) end })
+        end,
+        unschedule = function(_, fn)
+            for i = #queue, 1, -1 do
+                if queue[i].orig == fn then table.remove(queue, i) end
+            end
         end,
         broadcastEvent = function(_, ev) table.insert(events, ev.name) end,
     }
@@ -117,6 +122,22 @@ local NM = {
 package.preload["ui/network/manager"] = function() return NM end
 package.preload["android"] = function() return { openWifiSettings = function() end } end
 
+local registered_actions = {}
+package.preload["dispatcher"] = function()
+    return { registerAction = function(_, name, value) registered_actions[name] = value end }
+end
+
+-- KOReader's global settings (LuaSettings): only what the plugin uses.
+local settings_store
+local function resetSettings()
+    settings_store = {}
+    _G.G_reader_settings = {
+        isTrue = function(_, key) return settings_store[key] == true end,
+        flipNilOrFalse = function(_, key) settings_store[key] = not settings_store[key] or nil end,
+    }
+end
+resetSettings()
+
 -- Fake helper ---------------------------------------------------------------
 -- `wifi` is the simulated device. `script(method, arg)` may override replies;
 -- `on_poll(n)` can mutate `wifi` on each getState call.
@@ -162,6 +183,144 @@ local function stateReply()
         if wifi.locationPermission then s.ssid = wifi.ssid end
     end
     return s
+end
+
+-- Simulated Bluetooth, modelled on Bluetooth Stage 0 (AGENTS.md): switching
+-- passes through turning_on/turning_off for one poll; the paired list is empty
+-- while Bluetooth is off (Android 8.1); turning off disconnects remotes, and a
+-- remote reconnects only when a button is pressed (`bt_press`); discovery lasts
+-- about 14 s (28 polls) and reports only named devices; a remote in pairing mode
+-- goes bonding -> bonded, then Android connects it by itself.
+local bt
+local function resetBt()
+    bt = {
+        available = true, enabled = true, state = "on", hid_ready = true,
+        polls = 0, opened_settings = 0, scan_stops = 0,
+        paired = {
+            { address = "AA:00:00:00:00:01", name = "8BitDo Micro gamepad", remote = true, connection = "connected" },
+        },
+        nearby = {
+            { address = "AA:00:00:00:00:02", name = "Page Turner", remote = true, appear = 2, pairing_mode = true },
+            { address = "AA:00:00:00:00:03", name = "Phone", remote = false, appear = 1 },
+            { address = "AA:00:00:00:00:04", remote = false, appear = 1 }, -- unnamed BLE device
+        },
+        scan_len = 28,
+    }
+end
+local function btTick()
+    bt.polls = bt.polls + 1
+    if bt.pending ~= nil and bt.polls >= bt.pending_at then
+        bt.enabled, bt.state, bt.pending = bt.pending, bt.pending and "on" or "off", nil
+        if not bt.enabled then
+            for _, d in ipairs(bt.paired) do d.connection = "disconnected" end
+        end
+    end
+    if bt.pairing and bt.polls >= bt.pairing.next_at then
+        local p = bt.pairing
+        p.step = p.step + 1
+        p.next_at = bt.polls + 1
+        if p.step == 1 then
+            p.dev.bond = "bonding"
+        elseif p.dev.pairing_mode and p.step == 2 then
+            p.dev.bond = "bonded"
+            table.insert(bt.paired, p.dev)
+        elseif p.dev.pairing_mode and p.step == 3 and not bt.no_auto_connect then
+            p.dev.connection = "connected"
+            bt.pairing = nil
+        elseif not p.dev.pairing_mode and p.step == 3 then
+            p.dev.bond = "none"
+            bt.pairing = nil
+        end
+    end
+end
+local function btReply(extra)
+    local r = { ok = true, protocol = 1, available = bt.available }
+    if bt.available then
+        r.bluetoothState, r.enabled, r.hidReady = bt.state, bt.enabled, bt.hid_ready
+        r.discovering = bt.scan_at ~= nil
+    end
+    for k, v in pairs(extra or {}) do r[k] = v end
+    return r
+end
+local function btDescribe(d)
+    local o = { address = d.address, name = d.name, remote = d.remote, bond = d.bond or "bonded" }
+    if bt.hid_ready then o.connection = d.connection or "disconnected" end
+    return o
+end
+local function btFind(address)
+    for _, d in ipairs(bt.paired) do if d.address == address then return d end end
+    for _, d in ipairs(bt.nearby) do if d.address == address then return d end end
+end
+local function btError(code) return btReply({ ok = false, error = code }) end
+local function btCall(method, arg)
+    if method == "btState" then
+        btTick()
+        return btReply()
+    elseif method == "btSetEnabled" then
+        if not bt.available then return btError("bt_unavailable") end
+        if bt.reject_switch then return btError("request_rejected") end
+        local on = arg == "true"
+        if bt.enabled ~= on then
+            bt.state = on and "turning_on" or "turning_off"
+            bt.pending, bt.pending_at = on, bt.polls + 2
+        end
+        return btReply()
+    elseif method == "btPaired" then
+        local list = {}
+        if bt.enabled then
+            for _, d in ipairs(bt.paired) do table.insert(list, btDescribe(d)) end
+        end
+        return btReply({ devices = list })
+    elseif method == "btDevice" then
+        btTick()
+        local d = btFind(arg)
+        return btReply({ device = d and btDescribe(d) or { address = arg, bond = "none" } })
+    elseif method == "btScan" then
+        if not bt.enabled then return btError("bt_disabled") end
+        if not wifi.locationPermission then return { ok = false, error = "location_permission_needed", protocol = 1 } end
+        bt.scan_at = bt.polls
+        return btReply()
+    elseif method == "btScanResults" then
+        btTick()
+        local elapsed = bt.polls - (bt.scan_at or bt.polls)
+        local list = {}
+        for _, d in ipairs(bt.nearby) do
+            if d.name and elapsed >= d.appear then
+                local o = btDescribe(d)
+                o.bond = d.bond or "none"
+                table.insert(list, o)
+            end
+        end
+        for _, d in ipairs(bt.paired) do
+            if d.name then table.insert(list, btDescribe(d)) end -- paired devices nearby also show up
+        end
+        local finished = elapsed >= bt.scan_len
+        if finished then bt.scan_at = nil end
+        return btReply({ devices = list, finished = finished })
+    elseif method == "btScanStop" then
+        bt.scan_stops = bt.scan_stops + 1
+        bt.scan_at = nil
+        return btReply()
+    elseif method == "btPair" then
+        if not bt.enabled then return btError("bt_disabled") end
+        local d = btFind(arg)
+        if d.bond == "bonded" then return btError("already_paired") end
+        bt.scan_at = nil
+        bt.pairing = { dev = d, step = 0, next_at = bt.polls + 1 }
+        return btReply()
+    elseif method == "btForget" then
+        if bt.forget_unsupported then return btError("not_supported") end
+        for i, d in ipairs(bt.paired) do
+            if d.address == arg then
+                table.remove(bt.paired, i)
+                return btReply()
+            end
+        end
+        return btError("not_paired")
+    elseif method == "btOpenSettings" then
+        bt.opened_settings = bt.opened_settings + 1
+        return { ok = true, protocol = 1 }
+    end
 end
 
 package.preload["nookwifihelper"] = function()
@@ -238,6 +397,9 @@ package.preload["nookwifihelper"] = function()
                 return { ok = true, protocol = 1 }
             elseif method == "ping" then
                 return { ok = true, protocol = 1, versionName = "test" }
+            elseif method:sub(1, 2) == "bt" then
+                local reply = btCall(method, arg)
+                if reply then return reply end
             end
             return { ok = false, error = "unknown_method", protocol = 1 }
         end,
@@ -247,8 +409,15 @@ end
 -- Test runner ---------------------------------------------------------------
 
 local passed, failed = 0, 0
+local NookWifi -- loaded below; test() resets its shared Bluetooth state
 local function test(name, fn)
     resetWifi()
+    resetBt()
+    resetSettings()
+    if NookWifi and NookWifi.bt_shared then
+        local shared = NookWifi.bt_shared
+        shared.pending_off, shared.off_for_sleep, shared.away = nil, false, false
+    end
     now, queue, shown, closed, events, stock_calls = 0, {}, {}, {}, {}, {}
     local ok, err = pcall(fn)
     if ok then
@@ -284,7 +453,7 @@ local function renderMenu(items)
     return texts
 end
 
-local NookWifi = dofile(PLUGIN_DIR .. "/main.lua")
+NookWifi = dofile(PLUGIN_DIR .. "/main.lua")
 local Network = require("nookwifinetwork")
 local function newPlugin()
     local menu_items = {}
@@ -965,6 +1134,295 @@ test("connecting flow ending on another network still broadcasts NetworkConnecte
     runScheduled()
     eq(lastMessage(), "Could not connect to Cafe. Connected to Home instead.", "message")
     assert(has(events, "NetworkConnected"), "NetworkConnected not broadcast")
+end)
+
+-- Bluetooth page-turner remotes -------------------------------------------------
+
+local function newBtPlugin(reading)
+    local menu_items = {}
+    local plugin = setmetatable({ ui = { menu = { registerToMainMenu = function() end } } }, { __index = NookWifi })
+    plugin:init()
+    plugin:addToMainMenu(menu_items)
+    if reading then plugin.ui.document = {} end
+    return plugin, menu_items.nookbluetooth.sub_item_table
+end
+local function itemNamed(items, text)
+    for _, item in ipairs(items) do
+        if (item.text_func and item.text_func() or item.text) == text then return item end
+    end
+    error("no menu item " .. text)
+end
+local function lastShownMenu()
+    for i = #shown, 1, -1 do
+        if shown[i].item_table then return shown[i] end
+    end
+end
+
+test("bt: menu renders with a connected remote", function()
+    local _, items = newBtPlugin()
+    eq(renderMenu(items)[1], "Status: On, 8BitDo Micro gamepad connected", "status line")
+    eq(registered_actions.nookbluetooth_toggle.event, "NookBluetoothToggle", "gesture action")
+end)
+
+test("bt: status lines for off, no remote, unavailable and missing helper", function()
+    bt.enabled, bt.state = false, "off"
+    local _, items = newBtPlugin()
+    eq(renderMenu(items)[1], "Status: Off", "off")
+    resetBt()
+    bt.paired[1].connection = "disconnected"
+    _, items = newBtPlugin()
+    eq(renderMenu(items)[1], "Status: On, no remote connected", "no remote")
+    bt.available = false
+    _, items = newBtPlugin()
+    eq(renderMenu(items)[1], "Status: Not available", "unavailable")
+    helper_missing = true
+    _, items = newBtPlugin()
+    eq(renderMenu(items)[1], "Status: Nook Wi-Fi Helper is not installed.", "helper missing")
+end)
+
+test("bt: turning off reports only once Bluetooth is off", function()
+    local plugin = newBtPlugin()
+    plugin:setBluetooth(false)
+    eq(bt.state, "turning_off", "state right after the request")
+    runScheduled()
+    eq(lastMessage(), "Bluetooth off.", "message")
+    eq(bt.enabled, false, "enabled")
+    eq(bt.paired[1].connection, "disconnected", "remote")
+    eq(plugin.busy, false, "busy")
+end)
+
+test("bt: turning on says to press a button on the remote", function()
+    bt.enabled, bt.state = false, "off"
+    local plugin = newBtPlugin()
+    plugin:setBluetooth(true)
+    runScheduled()
+    eq(lastMessage(), "Bluetooth on. Press a button on your remote to connect it.", "message")
+end)
+
+test("bt: a rejected switch is reported", function()
+    bt.reject_switch = true
+    local plugin = newBtPlugin()
+    plugin:setBluetooth(false)
+    eq(lastMessage(), "Android rejected the Bluetooth request.", "message")
+    eq(plugin.busy, nil, "busy")
+end)
+
+test("bt: switch timeout", function()
+    local plugin = newBtPlugin()
+    bt.state = "turning_off" -- never finishes
+    local orig = btCall
+    btCall = function(m, a)
+        if m == "btSetEnabled" then return btReply() end
+        local r = orig(m, a)
+        bt.pending = nil
+        return r
+    end
+    plugin:setBluetooth(false)
+    runScheduled()
+    btCall = orig
+    eq(lastMessage(), "Bluetooth did not turn off within 10 seconds.", "message")
+end)
+
+test("bt: gesture toggles Bluetooth", function()
+    local plugin = newBtPlugin()
+    eq(plugin:onNookBluetoothToggle(), true, "handled")
+    runScheduled()
+    eq(lastMessage(), "Bluetooth off.", "message")
+end)
+
+test("bt: paired remotes list, connected first", function()
+    table.insert(bt.paired, 1, { address = "AA:00:00:00:00:09", name = "Keyboard", remote = true })
+    local _, items = newBtPlugin()
+    local texts = renderMenu(itemNamed(items, "Paired remotes").sub_item_table_func())
+    eq(texts[1], "8BitDo Micro gamepad · connected", "first")
+    eq(texts[2], "Keyboard", "second")
+end)
+
+test("bt: paired remotes asks to turn Bluetooth on when it is off", function()
+    bt.enabled, bt.state = false, "off"
+    local _, items = newBtPlugin()
+    eq(renderMenu(itemNamed(items, "Paired remotes").sub_item_table_func())[1],
+        "Turn on Bluetooth to see paired remotes.", "message")
+end)
+
+test("bt: hold to forget a remote", function()
+    local _, items = newBtPlugin()
+    local sub = itemNamed(items, "Paired remotes").sub_item_table_func()
+    sub[1].hold_callback()
+    local box = shown[#shown]
+    eq(box.ok_text, "Forget", "confirm button")
+    box.ok_callback()
+    eq(#bt.paired, 0, "paired devices left")
+    eq(lastMessage(), "Forgot 8BitDo Micro gamepad.", "message")
+end)
+
+test("bt: forget not supported points to Android Bluetooth settings", function()
+    bt.forget_unsupported = true
+    local plugin, items = newBtPlugin()
+    itemNamed(items, "Paired remotes").sub_item_table_func()[1].hold_callback()
+    shown[#shown].ok_callback()
+    local box = shown[#shown]
+    eq(box.ok_text, "Bluetooth settings", "prompt button")
+    box.ok_callback()
+    eq(bt.opened_settings, 1, "opened settings")
+    eq(plugin.bt_shared.away, true, "marked away")
+end)
+
+test("bt: pairing a new remote turns Bluetooth on, finds it and connects", function()
+    bt.enabled, bt.state = false, "off"
+    local plugin = newBtPlugin()
+    plugin:findRemotes()
+    runScheduled()
+    local menu = lastShownMenu()
+    assert(menu, "no remote list shown")
+    assert(bt.scan_at ~= nil or bt.polls < bt.scan_len, "waited for the whole scan")
+    eq(#menu.item_table, 2, "named, unpaired devices only")
+    eq(menu.item_table[1].text, "Page Turner", "remote first")
+    eq(menu.item_table[1].mandatory, "remote", "remote label")
+    menu.item_table[1].callback()
+    assert(closed[menu], "list not closed")
+    runScheduled()
+    eq(lastMessage(), "Connected to Page Turner.", "message")
+    eq(plugin.busy, false, "busy")
+end)
+
+test("bt: closing the remote list stops discovery", function()
+    local plugin = newBtPlugin()
+    plugin:findRemotes()
+    runScheduled()
+    lastShownMenu().close_callback()
+    eq(bt.scan_stops, 1, "btScanStop calls")
+end)
+
+test("bt: no remotes found", function()
+    bt.nearby = { { address = "AA:00:00:00:00:04", remote = false, appear = 1 } }
+    local plugin = newBtPlugin()
+    plugin:findRemotes()
+    runScheduled()
+    eq(lastMessage(), "No remotes found. Put your remote in pairing mode, then try again.", "message")
+    eq(bt.scan_stops, 1, "btScanStop calls")
+end)
+
+test("bt: finding remotes needs location permission", function()
+    wifi.locationPermission = false
+    local plugin = newBtPlugin()
+    plugin:findRemotes()
+    runScheduled()
+    assert(lastMessage():find("^Finding remotes needs location permission for the helper%."), lastMessage())
+    assert(lastMessage():find("Allow location access", 1, true), "no how-to")
+end)
+
+test("bt: pairing fails when the remote is not in pairing mode", function()
+    bt.nearby[1].pairing_mode = false
+    local plugin = newBtPlugin()
+    plugin:pairRemote(bt.nearby[1])
+    runScheduled()
+    eq(lastMessage(), "Could not pair with Page Turner. Put it in pairing mode and try again.", "message")
+end)
+
+test("bt: paired but not connected at the timeout", function()
+    bt.no_auto_connect = true
+    local plugin = newBtPlugin()
+    plugin:pairRemote(bt.nearby[1])
+    runScheduled()
+    eq(lastMessage(), "Paired with Page Turner. Press a button on it to connect.", "message")
+end)
+
+test("bt: on while reading turns Bluetooth on when a book opens", function()
+    settings_store.nookbluetooth_while_reading = true
+    bt.enabled, bt.state = false, "off"
+    local plugin = newBtPlugin(true)
+    plugin:onReaderReady()
+    runScheduled()
+    btTick(); btTick()
+    eq(bt.enabled, true, "enabled")
+    eq(#shown, 0, "showed a message")
+end)
+
+test("bt: nothing happens while the option is off", function()
+    bt.enabled, bt.state = false, "off"
+    local plugin = newBtPlugin(true)
+    plugin:onReaderReady()
+    plugin:onCloseDocument()
+    runScheduled()
+    eq(bt.state, "off", "state")
+    eq(#queue, 0, "scheduled work")
+end)
+
+test("bt: closing a book turns Bluetooth off after a delay", function()
+    settings_store.nookbluetooth_while_reading = true
+    local plugin = newBtPlugin(true)
+    plugin:onCloseDocument()
+    eq(bt.state, "on", "turned off at once")
+    runScheduled()
+    eq(now, 5, "delay")
+    eq(bt.state, "turning_off", "state")
+end)
+
+test("bt: opening the next book cancels the pending turn-off", function()
+    settings_store.nookbluetooth_while_reading = true
+    local plugin = newBtPlugin(true)
+    plugin:onCloseDocument()
+    local next_book = newBtPlugin(true) -- a new ReaderUI, a new plugin instance
+    next_book:onReaderReady()
+    runScheduled()
+    eq(bt.state, "on", "state")
+end)
+
+test("bt: sleeping while reading turns Bluetooth off, waking turns it on", function()
+    settings_store.nookbluetooth_while_reading = true
+    local plugin = newBtPlugin(true)
+    plugin:onRequestSuspend()
+    btTick(); btTick()
+    eq(bt.enabled, false, "off while asleep")
+    plugin:onResume()
+    btTick(); btTick()
+    eq(bt.enabled, true, "on after waking")
+end)
+
+test("bt: sleeping in the file browser leaves Bluetooth alone", function()
+    settings_store.nookbluetooth_while_reading = true
+    local plugin = newBtPlugin(false)
+    plugin:onRequestSuspend()
+    eq(bt.state, "on", "state")
+end)
+
+test("bt: Bluetooth switched off by hand stays off after waking", function()
+    settings_store.nookbluetooth_while_reading = true
+    local plugin = newBtPlugin(true)
+    bt.enabled, bt.state = false, "off"
+    plugin:onRequestSuspend()
+    plugin:onResume()
+    eq(bt.state, "off", "state")
+end)
+
+test("bt: opening Android Bluetooth settings does not count as sleeping", function()
+    settings_store.nookbluetooth_while_reading = true
+    local plugin, items = newBtPlugin(true)
+    itemNamed(items, "Open Android Bluetooth settings").callback()
+    plugin:onRequestSuspend() -- KOReader goes to the background
+    eq(bt.state, "on", "turned off for settings")
+    plugin:onResume()
+    eq(plugin.bt_shared.away, false, "away cleared")
+    plugin:onRequestSuspend() -- now a real sleep
+    eq(bt.state, "turning_off", "state")
+end)
+
+test("bt: pairing in progress does not count as sleeping", function()
+    settings_store.nookbluetooth_while_reading = true
+    local plugin = newBtPlugin(true)
+    plugin:pairRemote(bt.nearby[1])
+    plugin:onRequestSuspend() -- e.g. Android's PIN dialog
+    eq(bt.state, "on", "state")
+    runScheduled()
+end)
+
+test("bt: turning the option on while reading turns Bluetooth on", function()
+    bt.enabled, bt.state = false, "off"
+    local _, items = newBtPlugin(true)
+    itemNamed(items, "On while reading").callback()
+    eq(settings_store.nookbluetooth_while_reading, true, "setting")
+    eq(bt.state, "turning_on", "state")
 end)
 
 print(string.format("\n%d passed, %d failed", passed, failed))

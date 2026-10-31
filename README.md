@@ -1,10 +1,10 @@
 # Nook Wi-Fi for KOReader
 
-Turn Wi-Fi on and off, switch between saved networks, and join new networks from inside KOReader on a **Barnes & Noble Nook GlowLight 4 Plus**, without going back to the Nook home screen or Android settings.
+Turn Wi-Fi on and off, switch between saved networks, and join new networks from inside KOReader on a **Barnes & Noble Nook GlowLight 4 Plus**, without going back to the Nook home screen or Android settings. It also manages **Bluetooth page-turner remotes**: Bluetooth on/off, pairing, and keeping Bluetooth on only while you read.
 
 It has two parts:
 
-- **Nook Wi-Fi Helper** (`nookwifi-helper-<version>.apk`): a small Android app that holds the Wi-Fi permissions KOReader does not have. You open it once during setup.
+- **Nook Wi-Fi Helper** (`nookwifi-helper-<version>.apk`): a small Android app that holds the Wi-Fi and Bluetooth permissions KOReader does not have. You open it once during setup.
 - **Nook Wi-Fi plugin** (`nookwifi.koplugin-<version>.zip`): the KOReader plugin you actually use.
 
 No root is needed.
@@ -26,7 +26,7 @@ No root is needed.
    adb shell mkdir -p /sdcard/koreader/plugins
    adb push nookwifi.koplugin /sdcard/koreader/plugins/
    ```
-3. **Allow location access (once).** Open **Nook Wi-Fi Helper** from your launcher's app list and tap **Allow location access**, then **Allow**. Android only shows Wi-Fi network names to apps with location access; the helper never uses your location. Over USB instead:
+3. **Allow location access (once).** Open **Nook Wi-Fi Helper** from your launcher's app list and tap **Allow location access**, then **Allow**. Android only shows Wi-Fi network names, and nearby Bluetooth remotes, to apps with location access; the helper never uses your location. Over USB instead:
    ```sh
    adb shell pm grant dev.nookwifi.helper android.permission.ACCESS_COARSE_LOCATION
    ```
@@ -51,18 +51,33 @@ Everything is under **Settings → Network**.
 
 If a new network's password is wrong, the plugin says so and removes the network again, so you can simply try again.
 
+### Bluetooth page turners
+
+**Nook Bluetooth**, also under **Settings → Network**, is for page-turner remotes (KOReader sees them as a keyboard). Headphones and audio are not supported.
+
+- **Status**: on or off, and which remote is connected. Tap it to refresh.
+- **Bluetooth**: on/off.
+- **On while reading**: turns Bluetooth on when you open a book, and off when you close it (after 5 seconds, so opening the next book does not switch it off) or when the Nook goes to sleep. When the Nook wakes up with a book open, Bluetooth comes back on.
+- **Paired remotes**: lists your paired remotes. Hold one to forget it.
+- **Pair a new remote…**: put the remote in pairing mode first, then choose it from the list. Likely remotes are listed first.
+- **Open Android Bluetooth settings**: the stock Android screen (not the Nook's own, which cannot pair remotes).
+- The **Toggle Bluetooth** action can be assigned to a gesture or a key.
+
+After Bluetooth turns on, a remote usually reconnects only when you **press one of its buttons**; that first press may not turn a page.
+
 ## Limitations
 
 - **Supported security:** open networks and WPA/WPA2 Personal. WPA2/WPA3 mixed networks join as WPA2. **Not supported:** WPA3-only, Enterprise (802.1X), WEP, and hidden networks. Use Android Wi-Fi settings for those.
 - **Changing a saved password:** the plugin cannot change the password of a network that is already saved, because the Nook's firmware does not allow it. If a saved network's password stops working, the plugin offers to open Android Wi-Fi settings: forget the network there, then join it again from **Scan for networks…**.
 - **Removing saved networks:** the plugin cannot remove networks that were saved by the Nook or in Android settings. Use Android Wi-Fi settings.
+- **Bluetooth:** tested with an 8BitDo Micro, which pairs without a PIN. A remote that needs a PIN shows Android's own pairing dialog. If pairing or forgetting does not work for your remote, use **Open Android Bluetooth settings**.
 - **After a KOReader update:** the plugin adjusts KOReader's internal Wi-Fi handling. If **Settings → Network → Wi-Fi connection** opens Android settings again after updating KOReader, the update changed that code. The **Nook Wi-Fi** menu still works; please report the problem.
 
 ## Privacy
 
 - **Passwords:** a Wi-Fi password goes from KOReader straight to Android. The helper never logs or stores it, or sends it anywhere. The plugin does not save it in KOReader's settings.
 - **Debug logging:** KOReader's on-screen keyboard writes every key press to the system log when debug logging is on. The password dialog switches debug logging off while it is open and restores it afterwards.
-- **Who can use the helper:** the helper only accepts requests from KOReader. Anything running inside KOReader can use it, including other plugins and patches you install, so it can control Wi-Fi and read nearby network names (which can reveal roughly where you are). Only install KOReader plugins you trust.
+- **Who can use the helper:** the helper only accepts requests from KOReader. Anything running inside KOReader can use it, including other plugins and patches you install, so it can control Wi-Fi and Bluetooth, pair Bluetooth devices, and read nearby network and device names (which can reveal roughly where you are). Only install KOReader plugins you trust.
 
 ## Update
 
@@ -76,7 +91,7 @@ Always update the helper and the plugin together; **Helper info** shows both ver
 2. Uninstall **Nook Wi-Fi Helper** in Android Settings → Apps, or over USB with `adb uninstall dev.nookwifi.helper`.
 3. Exit KOReader and open it again. KOReader's Wi-Fi items go back to opening Android settings.
 
-Networks you joined stay saved in Android.
+Networks you joined, and remotes you paired, stay saved in Android.
 
 ## Troubleshooting
 

@@ -28,6 +28,10 @@ import java.util.Set;
  * Methods: ping, getState, setEnabled(arg "true"|"false"), listSaved,
  * connectSaved(arg networkId), reconnect, scan, scanResults,
  * join(extras ssid/security/password), forget(arg networkId). See WifiOps for fields.
+ *
+ * Bluetooth (page-turner remotes): btState, btSetEnabled(arg "true"|"false"),
+ * btPaired, btDevice(arg address), btScan, btScanStop, btScanResults,
+ * btPair(arg address), btForget(arg address), btOpenSettings. See BluetoothOps.
  */
 public class HelperProvider extends ContentProvider {
     static final String TAG = "NookWifi";
@@ -41,10 +45,12 @@ public class HelperProvider extends ContentProvider {
     private static final int SHELL_UID = 2000;
 
     private WifiOps wifi;
+    private BluetoothOps bluetooth;
 
     @Override
     public boolean onCreate() {
         wifi = new WifiOps(getContext());
+        bluetooth = new BluetoothOps(getContext());
         return true;
     }
 
@@ -97,6 +103,26 @@ public class HelperProvider extends ContentProvider {
                 return wifi.join(extras);
             case "forget":
                 return wifi.forget(arg);
+            case "btState":
+                return bluetooth.getState();
+            case "btSetEnabled":
+                return bluetooth.setEnabled(arg);
+            case "btPaired":
+                return bluetooth.listPaired();
+            case "btDevice":
+                return bluetooth.device(arg);
+            case "btScan":
+                return bluetooth.startScan();
+            case "btScanStop":
+                return bluetooth.stopScan();
+            case "btScanResults":
+                return bluetooth.scanResults();
+            case "btPair":
+                return bluetooth.pair(arg);
+            case "btForget":
+                return bluetooth.forget(arg);
+            case "btOpenSettings":
+                return bluetooth.openSettings();
             default:
                 return Replies.error("unknown_method");
         }

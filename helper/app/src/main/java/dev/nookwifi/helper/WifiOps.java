@@ -391,6 +391,11 @@ final class WifiOps {
     }
 
     private boolean hasLocationPermission() {
+        return hasLocationPermission(context);
+    }
+
+    // Shared with BluetoothOps: Bluetooth discovery needs the same permission.
+    static boolean hasLocationPermission(Context context) {
         return context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
                 == PackageManager.PERMISSION_GRANTED;
     }

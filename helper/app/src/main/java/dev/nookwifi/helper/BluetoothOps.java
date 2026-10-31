@@ -1,0 +1,331 @@
+package dev.nookwifi.helper;
+
+import android.annotation.SuppressLint;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothClass;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothProfile;
+import android.content.ActivityNotFoundException;
+import android.content.BroadcastReceiver;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.provider.Settings;
+import android.util.Log;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import static dev.nookwifi.helper.BluetoothRules.adapterState;
+import static dev.nookwifi.helper.BluetoothRules.bondState;
+import static dev.nookwifi.helper.BluetoothRules.connectionState;
+import static dev.nookwifi.helper.BluetoothRules.isLikelyRemote;
+import static dev.nookwifi.helper.BluetoothRules.isValidAddress;
+
+import java.lang.reflect.Method;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * Bluetooth operations for page-turner remotes, behind the helper's bt* methods.
+ * Like WifiOps, nothing here waits for a state change: the plugin polls.
+ *
+ * Verified on the Nook in Bluetooth Stage 0 (spikes/bt-test): enable/disable,
+ * bonded devices, discovery, createBond (HID then connects by itself) and the
+ * hidden removeBond all work for a normal app on API 27, with no popup for the
+ * 8BitDo Micro. Device addresses are never logged.
+ */
+// Lint applies API 31+ rules (BLUETOOTH_CONNECT, BLUETOOTH_SCAN, runtime grants)
+// because compileSdk is newer. On API 27 BLUETOOTH and BLUETOOTH_ADMIN are
+// install-time permissions declared in the manifest, and discovery's location
+// permission is checked in startScan.
+@SuppressLint("MissingPermission")
+final class BluetoothOps {
+    // BluetoothProfile.INPUT_DEVICE (HID host) is hidden on API 27; its value is 4.
+    private static final int INPUT_DEVICE = 4;
+    private static final ComponentName STOCK_SETTINGS =
+            new ComponentName("com.android.settings", "com.android.settings.Settings$BluetoothSettingsActivity");
+
+    private final Context context;
+    private final BluetoothAdapter adapter;
+    // HID host proxy, for each remote's connection state. Android drops it when
+    // Bluetooth turns off and the Bluetooth process restarts when it turns on;
+    // the proxy rebinds by itself (seen in Stage 0). Null until bound.
+    private volatile BluetoothProfile hid;
+
+    // Discovery results since the last btScan, by address. In memory only: if
+    // Android kills the helper mid-scan, the plugin times out and can scan again.
+    private final Map<String, JSONObject> found = new LinkedHashMap<>();
+    private volatile boolean scanRequested;
+    // "Finished" counts only after Android confirmed this scan started: startScan
+    // cancels any running discovery first, and that cancellation's FINISHED
+    // broadcast can arrive after the new request (seen on the Nook: a second
+    // scan reported finished on its first poll).
+    private volatile boolean scanStarted;
+    private volatile boolean scanFinished;
+
+    private final BroadcastReceiver receiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context c, Intent intent) {
+            String action = intent.getAction();
+            if (BluetoothDevice.ACTION_FOUND.equals(action)) {
+                BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                if (device != null && scanRequested) {
+                    JSONObject d = describe(device);
+                    synchronized (found) {
+                        found.put(device.getAddress(), d);
+                    }
+                }
+            } else if (BluetoothAdapter.ACTION_DISCOVERY_STARTED.equals(action)) {
+                if (scanRequested) {
+                    scanStarted = true;
+                }
+            } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
+                if (scanRequested && scanStarted) {
+                    scanFinished = true;
+                }
+            }
+        }
+    };
+
+    BluetoothOps(Context context) {
+        this.context = context.getApplicationContext();
+        this.adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter == null) {
+            return;
+        }
+        adapter.getProfileProxy(this.context, new BluetoothProfile.ServiceListener() {
+            @Override
+            public void onServiceConnected(int profile, BluetoothProfile proxy) {
+                hid = proxy;
+            }
+
+            @Override
+            public void onServiceDisconnected(int profile) {
+                hid = null;
+            }
+        }, INPUT_DEVICE);
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(BluetoothDevice.ACTION_FOUND);
+        filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_STARTED);
+        filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
+        // Lives as long as the helper process, like WifiOps' receiver.
+        this.context.registerReceiver(receiver, filter);
+    }
+
+    /**
+     * Reply fields: available (false if the device has no Bluetooth),
+     * bluetoothState (off|turning_on|on|turning_off|unknown), enabled, discovering,
+     * hidReady (whether remotes' connection states can be read yet).
+     */
+    JSONObject getState() {
+        return putState(Replies.ok());
+    }
+
+    /** arg is "true" or "false". Returns as soon as Android accepts the request. */
+    JSONObject setEnabled(String arg) {
+        if (adapter == null) {
+            return putState(Replies.error("bt_unavailable"));
+        }
+        boolean accepted;
+        if ("true".equals(arg)) {
+            accepted = adapter.enable();
+        } else if ("false".equals(arg)) {
+            accepted = adapter.disable();
+        } else {
+            return Replies.error("bad_argument");
+        }
+        return putState(accepted ? Replies.ok() : Replies.error("request_rejected"));
+    }
+
+    /**
+     * Paired devices as "devices": [{address, name, remote, bond, connection}].
+     * connection is left out while the HID proxy is not bound yet. Works with
+     * Bluetooth off (the list is then empty on Android 8.1).
+     */
+    JSONObject listPaired() {
+        if (adapter == null) {
+            return putState(Replies.error("bt_unavailable"));
+        }
+        JSONArray devices = new JSONArray();
+        for (BluetoothDevice d : adapter.getBondedDevices()) {
+            devices.put(describe(d));
+        }
+        return Replies.put(putState(Replies.ok()), "devices", devices);
+    }
+
+    /** One device by address (arg): the same fields as in listPaired. */
+    JSONObject device(String arg) {
+        if (adapter == null) {
+            return putState(Replies.error("bt_unavailable"));
+        }
+        if (!isValidAddress(arg)) {
+            return Replies.error("bad_argument");
+        }
+        return Replies.put(putState(Replies.ok()), "device", describe(adapter.getRemoteDevice(arg)));
+    }
+
+    /**
+     * Starts discovery (about 14 s on the Nook). Callers poll scanResults until
+     * "finished". Needs coarse location, like Wi-Fi scanning.
+     */
+    JSONObject startScan() {
+        if (adapter == null) {
+            return putState(Replies.error("bt_unavailable"));
+        }
+        if (!adapter.isEnabled()) {
+            return putState(Replies.error("bt_disabled"));
+        }
+        if (!WifiOps.hasLocationPermission(context)) {
+            return Replies.error("location_permission_needed");
+        }
+        synchronized (found) {
+            found.clear();
+        }
+        adapter.cancelDiscovery();
+        scanStarted = false;
+        scanFinished = false;
+        scanRequested = true;
+        if (!adapter.startDiscovery()) {
+            scanRequested = false;
+            return putState(Replies.error("request_rejected"));
+        }
+        return putState(Replies.ok());
+    }
+
+    /** Stops discovery early, e.g. when the plugin's list closes. */
+    JSONObject stopScan() {
+        if (adapter != null) {
+            adapter.cancelDiscovery();
+        }
+        return putState(Replies.ok());
+    }
+
+    /**
+     * Devices found since the last btScan that have a name, as "devices" (same
+     * fields as listPaired), plus "finished" once discovery ended. Unnamed devices
+     * (mostly BLE beacons and phones; 19 nearby in Stage 0) are left out.
+     */
+    JSONObject scanResults() {
+        if (adapter == null) {
+            return putState(Replies.error("bt_unavailable"));
+        }
+        JSONArray devices = new JSONArray();
+        synchronized (found) {
+            for (JSONObject d : found.values()) {
+                if (d.has("name")) {
+                    devices.put(d);
+                }
+            }
+        }
+        JSONObject reply = putState(Replies.ok());
+        Replies.put(reply, "devices", devices);
+        Replies.put(reply, "finished", scanFinished);
+        return reply;
+    }
+
+    /**
+     * Pairs with the device at arg. Android connects HID by itself once bonded
+     * (Stage 0); a remote that needs a PIN gets Android's own pairing dialog.
+     * Callers poll device(arg).
+     */
+    JSONObject pair(String arg) {
+        if (adapter == null) {
+            return putState(Replies.error("bt_unavailable"));
+        }
+        if (!isValidAddress(arg)) {
+            return Replies.error("bad_argument");
+        }
+        if (!adapter.isEnabled()) {
+            return putState(Replies.error("bt_disabled"));
+        }
+        BluetoothDevice device = adapter.getRemoteDevice(arg);
+        if (device.getBondState() == BluetoothDevice.BOND_BONDED) {
+            return putState(Replies.error("already_paired"));
+        }
+        // Discovery slows bonding down; Android recommends stopping it first.
+        adapter.cancelDiscovery();
+        return putState(device.createBond() ? Replies.ok() : Replies.error("request_rejected"));
+    }
+
+    /**
+     * Forgets (unpairs) the paired device at arg, through the hidden
+     * BluetoothDevice.removeBond(). It worked from a normal app on the Nook
+     * (Stage 0); if a firmware hides it, the reply is "not_supported" and the
+     * plugin points to Android's Bluetooth settings.
+     */
+    JSONObject forget(String arg) {
+        if (adapter == null) {
+            return putState(Replies.error("bt_unavailable"));
+        }
+        if (!isValidAddress(arg)) {
+            return Replies.error("bad_argument");
+        }
+        BluetoothDevice device = adapter.getRemoteDevice(arg);
+        if (device.getBondState() != BluetoothDevice.BOND_BONDED) {
+            return putState(Replies.error("not_paired"));
+        }
+        boolean removed;
+        try {
+            Method removeBond = BluetoothDevice.class.getMethod("removeBond");
+            removed = Boolean.TRUE.equals(removeBond.invoke(device));
+        } catch (ReflectiveOperationException e) {
+            Log.w(HelperProvider.TAG, "removeBond unavailable: " + e.getClass().getSimpleName());
+            return putState(Replies.error("not_supported"));
+        }
+        return putState(removed ? Replies.ok() : Replies.error("request_rejected"));
+    }
+
+    /**
+     * Opens stock Android's Bluetooth settings, never the Nook's (which cannot
+     * pair remotes): the explicit component first, then the generic action, which
+     * on this firmware resolves only to the stock screen (checked 2026-10-30).
+     */
+    JSONObject openSettings() {
+        Intent intent = new Intent().setComponent(STOCK_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            context.startActivity(intent);
+            return Replies.ok();
+        } catch (ActivityNotFoundException | SecurityException e) {
+            Log.w(HelperProvider.TAG, "stock Bluetooth settings unavailable: " + e.getClass().getSimpleName());
+        }
+        try {
+            context.startActivity(new Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            return Replies.ok();
+        } catch (ActivityNotFoundException | SecurityException e) {
+            return Replies.error("settings_unavailable");
+        }
+    }
+
+    private JSONObject putState(JSONObject reply) {
+        Replies.put(reply, "available", adapter != null);
+        if (adapter == null) {
+            return reply;
+        }
+        int state = adapter.getState();
+        Replies.put(reply, "bluetoothState", adapterState(state));
+        Replies.put(reply, "enabled", state == BluetoothAdapter.STATE_ON);
+        Replies.put(reply, "discovering", adapter.isDiscovering());
+        Replies.put(reply, "hidReady", hid != null);
+        return reply;
+    }
+
+    // Name is left out when unknown (common for BLE devices before a name lookup).
+    private JSONObject describe(BluetoothDevice d) {
+        JSONObject o = new JSONObject();
+        Replies.put(o, "address", d.getAddress());
+        String name = d.getName();
+        if (name != null && !name.isEmpty()) {
+            Replies.put(o, "name", name);
+        }
+        BluetoothClass cls = d.getBluetoothClass();
+        Replies.put(o, "remote", cls != null && isLikelyRemote(cls.getMajorDeviceClass()));
+        Replies.put(o, "bond", bondState(d.getBondState()));
+        BluetoothProfile proxy = hid;
+        if (proxy != null) {
+            Replies.put(o, "connection", connectionState(proxy.getConnectionState(d)));
+        }
+        return o;
+    }
+}

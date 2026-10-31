@@ -42,7 +42,7 @@ local AUTH_GRACE_S = 3
 -- Menu text and checkbox funcs run together on each redraw; reuse one reply.
 local STATE_CACHE_S = 1
 
-local PLUGIN_VERSION = "1.0.6"
+local PLUGIN_VERSION = "1.1.0"
 local GRANT_COMMAND = "adb shell pm grant dev.nookwifi.helper android.permission.ACCESS_COARSE_LOCATION"
 
 -- How to grant the helper's location permission: its setup screen, or ADB.
@@ -75,6 +75,7 @@ local NookWifi = WidgetContainer:extend{
 
 function NookWifi:init()
     Network.install()
+    self:registerBluetoothActions()
     self.ui.menu:registerToMainMenu(self)
 end
 
@@ -105,6 +106,9 @@ local function errorText(reply, err)
     end
     return T(_("Nook Wi-Fi Helper reported an error (%1)."), tostring(reply.error))
 end
+
+-- Bluetooth page-turner remotes (Settings → Network → Nook Bluetooth).
+require("nookbluetooth")(NookWifi, errorText)
 
 -- Returns the helper's getState reply, or nil and a message.
 function NookWifi:getState(fresh)
@@ -149,6 +153,7 @@ local function statusText(state)
 end
 
 function NookWifi:addToMainMenu(menu_items)
+    self:addBluetoothMenu(menu_items)
     local function available()
         return not self.busy and self:getState() ~= nil
     end
