@@ -338,6 +338,7 @@ local function btCall(method, arg)
         local d = btFind(arg)
         if d.bond == "bonded" then return btError("already_paired") end
         bt.scan_at = nil
+        if bt.reject_pair then return btError("request_rejected") end
         bt.removed[arg] = nil
         bt.pair_failed[arg] = nil
         if bt.pair_fails_at_once then
@@ -1514,6 +1515,17 @@ test("bt: pairing fails when the remote is not in pairing mode", function()
     plugin:pairRemote(bt.nearby[1])
     runScheduled()
     eq(lastMessage(), "Could not pair with Page Turner. Put it in pairing mode and try again.", "message")
+end)
+
+test("bt: a refused pairing still stops discovery", function()
+    bt.reject_pair = true
+    local plugin = newBtPlugin()
+    plugin:findRemotes()
+    runScheduled()
+    selectMenuItem(lastShownMenu(), 1)
+    runScheduled()
+    eq(bt.scan_stops, 1, "btScanStop calls")
+    eq(bt.scan_at, nil, "still discovering")
 end)
 
 test("bt: a pairing that fails between two polls is reported at once", function()

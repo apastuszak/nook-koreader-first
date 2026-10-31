@@ -404,13 +404,21 @@ function NookWifi:showFoundRemotes(devices, touchmenu_instance)
     UIManager:show(menu)
 end
 
+-- The remote list leaves discovery to this: a btPair that went through has
+-- stopped it; any other path stops it here.
 function NookWifi:pairRemote(dev, touchmenu_instance)
-    if self.busy then return end
+    if self.busy then
+        call("btScanStop")
+        return
+    end
     cancelPendingOff()
     local name = deviceName(dev)
     local finish = self:beginOperation(T(_("Pairing with %1…"), name), touchmenu_instance)
     local reply, msg = call("btPair", dev.address)
-    if not reply then return finish(msg) end
+    if not reply then
+        call("btScanStop")
+        return finish(msg)
+    end
     self:pollState(PAIR_TIMEOUT_S, finish, function(r)
         local d = r.device or {}
         if d.bond == "bonded" and d.connection == "connected" then
