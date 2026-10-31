@@ -90,13 +90,15 @@ Networks you joined stay saved in Android.
 
 ## Optional: KOReader Home launcher
 
+**Requires KOReader** (`org.koreader.launcher`) to be installed. It is meant only for Nooks that use KOReader. If KOReader is ever missing (for example mid-update), Home shows the recovery screen instead of opening it.
+
 **KOReader Home** is a separate app (`dev.nookkoreader.launcher`), independent of
 the Wi-Fi helper and plugin. When selected as the default Home app, it opens
 KOReader whenever Home is invoked. It requests no permissions and uses no
-network access. Version 0.1.0 is ready for device testing as the default launcher;
-the physical Home shortcut still needs that final test.
+network access. It has been tested as the default launcher on a GlowLight 4 Plus:
+Home, the recovery screen, recovering from a KOReader crash, and rebooting.
 
-Install `koreader-home-0.1.0.apk` from `dist/`, or use:
+Install `koreader-home-<version>.apk` from `dist/`, or use:
 
 ```sh
 make install-launcher
