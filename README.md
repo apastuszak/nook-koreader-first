@@ -73,6 +73,10 @@ The first time you choose a value, the plugin asks you to allow **Nook Wi-Fi Hel
 
 For the screen timeout (how long until the Nook sleeps), use KOReader's own **Settings → Screen → Screen timeout**.
 
+### Open Nook home
+
+**Tools → Open Nook home** opens the stock Nook home screen (your library, the B&N store and the Nook's own settings) without changing your default Home app. Press **Home** to come back: with the optional KOReader Home launcher that returns to KOReader; otherwise it goes to your default launcher. The **Open Nook home** action can also be assigned to a gesture or a key.
+
 ## Limitations
 
 - **Supported security:** open networks and WPA/WPA2 Personal. WPA2/WPA3 mixed networks join as WPA2. **Not supported:** WPA3-only, Enterprise (802.1X), WEP, and hidden networks. Use Android Wi-Fi settings for those.
@@ -86,7 +90,7 @@ For the screen timeout (how long until the Nook sleeps), use KOReader's own **Se
 
 - **Passwords:** a Wi-Fi password goes from KOReader straight to Android. The helper never logs or stores it, or sends it anywhere. The plugin does not save it in KOReader's settings.
 - **Debug logging:** KOReader's on-screen keyboard writes every key press to the system log when debug logging is on. The password dialog switches debug logging off while it is open and restores it afterwards.
-- **Who can use the helper:** the helper only accepts requests from KOReader. Anything running inside KOReader can use it, including other plugins and patches you install, so it can control Wi-Fi and Bluetooth, pair Bluetooth devices, set when the Nook powers off (only to one of the menu's choices), and read nearby network and device names (which can reveal roughly where you are). Only install KOReader plugins you trust.
+- **Who can use the helper:** the helper only accepts requests from KOReader. Anything running inside KOReader can use it, including other plugins and patches you install, so it can control Wi-Fi and Bluetooth, pair Bluetooth devices, open the Nook home screen, set when the Nook powers off (only to one of the menu's choices), and read nearby network and device names (which can reveal roughly where you are). Only install KOReader plugins you trust.
 
 ## Update
 

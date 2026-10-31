@@ -1,7 +1,10 @@
 package dev.nookwifi.helper;
 
+import android.content.ActivityNotFoundException;
+import android.content.ComponentName;
 import android.content.ContentProvider;
 import android.content.ContentValues;
+import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
@@ -35,6 +38,8 @@ import java.util.Set;
  *
  * Power-off timer: powerOffGet, powerOffSet(arg milliseconds), powerOffOpenSettings.
  * See PowerOps.
+ *
+ * openNookHome: opens the stock Nook home screen.
  */
 public class HelperProvider extends ContentProvider {
     static final String TAG = "NookWifi";
@@ -46,6 +51,10 @@ public class HelperProvider extends ContentProvider {
     // that command sends no calling package, so match the shell's fixed UID
     // (Process.SHELL_UID, hidden before API 29).
     private static final int SHELL_UID = 2000;
+    // The stock Nook launcher entry. It opens the Nook's home screen
+    // (bn.ereader/com.nook.lib.ynt3.EpdHomeActivity); verified on the Nook.
+    private static final ComponentName NOOK_HOME =
+            new ComponentName("com.nook.partner", "com.nook.partner.FacadeLauncherActivity");
 
     private WifiOps wifi;
     private BluetoothOps bluetooth;
@@ -134,8 +143,26 @@ public class HelperProvider extends ContentProvider {
                 return power.set(arg);
             case "powerOffOpenSettings":
                 return power.openSettings();
+            case "openNookHome":
+                return openNookHome();
             default:
                 return Replies.error("unknown_method");
+        }
+    }
+
+    /**
+     * Starts the Nook launcher's own entry as an ordinary activity (it does not
+     * change the default Home app). Pressing Home afterwards goes to whichever
+     * launcher is the default.
+     */
+    private JSONObject openNookHome() {
+        Intent intent = new Intent(Intent.ACTION_MAIN).setComponent(NOOK_HOME)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            getContext().startActivity(intent);
+            return Replies.ok();
+        } catch (ActivityNotFoundException | SecurityException e) {
+            return Replies.error("nook_home_unavailable");
         }
     }
 

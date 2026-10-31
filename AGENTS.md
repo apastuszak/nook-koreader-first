@@ -396,6 +396,8 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
   - The firmware itself turns Bluetooth and Wi-Fi off on sleep and back on on wake (`postDisableBT`/`postEnableBT`, `postDisableWifi`/`postEnableWifi` in `PowerManagerEx`), independent of the plugin.
   - The user reports a short press of the power button rarely puts the Nook to sleep; `adb shell input keyevent KEYCODE_SLEEP` does.
 
+- **Open Nook home (helper/plugin 1.1.0, the user asked 2026-10-31), verified on device.** Helper method `openNookHome` starts the fixed component `com.nook.partner/.FacadeLauncherActivity` (`ACTION_MAIN`, `FLAG_ACTIVITY_NEW_TASK`); that facade opens `bn.ereader/com.nook.lib.ynt3.EpdHomeActivity`, the Nook home screen (in front about 0.3 s later). It does not change the default Home app. Errors: `nook_home_unavailable`. Checked over ADB first: `bn.ereader/.app.ui.SplashActivity` (the reading app's app-drawer entry) opens a profile screen (`ProfileV5Activity`) instead, so it is not used. Plugin `nookhome.lua`: Tools → "Open Nook home" and Dispatcher action `nookhome_open` (General). Offline: 5 tests. **Verified on device:** menu item, Home back to KOReader through the launcher, and the gesture.
+
 Complete useful implementation work autonomously. Ask the user for device checks or decisions only when needed. Do not claim device behavior is verified until it has actually been tested.
 
 ## Android considerations

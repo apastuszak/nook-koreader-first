@@ -171,6 +171,8 @@ local function resetWifi()
         -- The power-off timer (helper PowerOps): power_off_timeout in ms, whether the
         -- user allowed "Modify system settings", and how often its screen was opened.
         power = { ms = 0, write_allowed = false, opened = 0 },
+        -- openNookHome: how often the Nook home was opened; false if it is missing.
+        nook_home_opened = 0, nook_home_available = true,
     }
     helper_missing, on_poll, polls = false, nil, 0
 end
@@ -450,6 +452,15 @@ package.preload["nookwifihelper"] = function()
             elseif method:sub(1, 2) == "bt" then
                 local reply = btCall(method, arg)
                 if reply then return reply end
+            elseif method == "openNookHome" then
+                if wifi.nook_home_unknown then -- a helper before this feature
+                    return { ok = false, error = "unknown_method", protocol = 1 }
+                end
+                if not wifi.nook_home_available then
+                    return { ok = false, error = "nook_home_unavailable", protocol = 1 }
+                end
+                wifi.nook_home_opened = wifi.nook_home_opened + 1
+                return { ok = true, protocol = 1 }
             elseif method:sub(1, 8) == "powerOff" and wifi.power_unsupported then
                 return { ok = false, error = "unknown_method", protocol = 1 } -- helper before 1.1.0
             elseif method:sub(1, 8) == "powerOff" and wifi.power_no_value and method ~= "powerOffOpenSettings" then
@@ -1793,6 +1804,57 @@ test("power: an older helper reports it is out of date when choosing", function(
     wifi.power_unsupported = true
     plugin:setPowerOffTimeout(86400000)
     eq(lastMessage(), "Nook Wi-Fi Helper is out of date. Update it.", "message")
+end)
+
+-- Nook home -----------------------------------------------------------------
+
+local function newHomePlugin()
+    local menu_items = {}
+    local plugin = setmetatable({ ui = { menu = { registerToMainMenu = function() end } } }, { __index = NookWifi })
+    plugin:init()
+    plugin:addToMainMenu(menu_items)
+    return plugin, menu_items.nookhome
+end
+
+test("nook home: the Tools menu item opens the Nook home", function()
+    local _, item = newHomePlugin()
+    eq(item.text, "Open Nook home", "text")
+    eq(item.sorting_hint, "tools", "menu section")
+    local before = #shown
+    item.callback()
+    eq(wifi.nook_home_opened, 1, "opened")
+    eq(#shown, before, "showed a message on success")
+end)
+
+test("nook home: the gesture action is registered and opens it", function()
+    local plugin = newHomePlugin()
+    local action = registered_actions.nookhome_open
+    assert(action, "no action")
+    eq(action.event, "NookHomeOpen", "event")
+    eq(action.general, true, "general")
+    eq(plugin:onNookHomeOpen(), true, "handled")
+    eq(wifi.nook_home_opened, 1, "opened")
+end)
+
+test("nook home: a missing Nook home is reported", function()
+    wifi.nook_home_available = false
+    local _, item = newHomePlugin()
+    item.callback()
+    eq(lastMessage(), "The Nook home screen is not available on this device.", "message")
+end)
+
+test("nook home: an older helper says it is out of date", function()
+    wifi.nook_home_unknown = true
+    local plugin = newHomePlugin()
+    plugin:openNookHome()
+    eq(lastMessage(), "Nook Wi-Fi Helper is out of date. Update it.", "message")
+end)
+
+test("nook home: without the helper it says to install it", function()
+    helper_missing = true
+    local plugin = newHomePlugin()
+    plugin:openNookHome()
+    eq(lastMessage(), "Nook Wi-Fi Helper is not installed.", "message")
 end)
 
 print(string.format("\n%d passed, %d failed", passed, failed))

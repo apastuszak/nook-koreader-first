@@ -76,6 +76,7 @@ local NookWifi = WidgetContainer:extend{
 function NookWifi:init()
     Network.install()
     self:registerBluetoothActions()
+    self:registerNookHomeActions()
     self.ui.menu:registerToMainMenu(self)
 end
 
@@ -111,6 +112,8 @@ end
 require("nookbluetooth")(NookWifi, errorText)
 -- The Nook's power-off timer (Settings → Device → Nook power off after sleeping).
 require("nookpower")(NookWifi, errorText)
+-- Opening the stock Nook home screen (Tools → Open Nook home, and a gesture action).
+require("nookhome")(NookWifi, errorText)
 
 -- Returns the helper's getState reply, or nil and a message.
 function NookWifi:getState(fresh)
@@ -157,6 +160,7 @@ end
 function NookWifi:addToMainMenu(menu_items)
     self:addBluetoothMenu(menu_items)
     self:addPowerMenu(menu_items)
+    self:addNookHomeMenu(menu_items)
     local function available()
         return not self.busy and self:getState() ~= nil
     end
