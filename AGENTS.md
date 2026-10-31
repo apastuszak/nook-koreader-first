@@ -261,11 +261,22 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
   - **Default Home testing approved by the user on 2026-10-30.** Set `dev.nookkoreader.launcher/.HomeActivity` as the default and verified resolution. An injected system HOME key opens KOReader. Three separately injected HOME keys (~3.6 s total) reach loop recovery. Fast injected keys are coalesced by Android and do not establish the physical triple-Home behavior; the user has been asked to test the physical button. KOReader crash/exit and reboot behavior remain untested. Missing KOReader is handled in code but was not tested by removing or disabling the user's KOReader. Do not describe explicit-intent or injected-key tests as physical-button or crash tests.
 
 - **Launcher 0.1.2: physical Home button findings (2026-10-30, verified on device with logcat and the launcher's new `KOReaderHome` log tag).**
+  - The Home button is **capacitive** (per the user), not mechanical; that likely explains the delayed release and swallowed taps, which come from the touch controller. Stray touches are possible: one just reopens KOReader, three within 10 s open recovery.
   - The Nook's physical Home button sends `KEYCODE_HOME`, but Android only sees the press on *release*, which the Nook reports 1.3–2 s after the press even for a quick tap. Taps during that time are swallowed, so a fast triple tap arrives as **one** HOME entry. The 1.5 s "triple-Home escape" in the original plan and in 0.1.0 can never trigger physically; ADB-injected keys had hidden this.
   - Three physical presses about 2 s apart produced three HOME entries within about 5 s, and the third opened recovery (`loop`), verified in logcat.
   - 0.1.2 removes the separate fast escape: any 3 HOME entries within 10 s open recovery (`LaunchGuard.Decision` is now `LAUNCH`/`LOOP`). The recovery text was reworded to cover both cases ("Home was pressed 3 times, or KOReader closed repeatedly…"), and the README and tip say "press Home 3 times, about 2 seconds apart". Earlier notes above about a 1.5 s escape or "triple-Home" describe the superseded design.
   - `HomeActivity` logs each HOME entry and the guard's decision under the tag `KOReaderHome` (no user data); `make logs-launcher` follows it.
-  - Still untested on device: KOReader crash/exit returning to Home, behavior after a reboot, and KOReader missing.
+  - **Crash and reboot tests (2026-10-30, over ADB, verified with the `KOReaderHome` log and the focused window):**
+    - Single crash (`am force-stop org.koreader.launcher`) with KOReader opened *by the launcher*: Android returned to Home by itself, and the launcher reopened KOReader.
+    - If KOReader was opened as an ordinary app (e.g. from Olauncher), Android instead returns to whatever task was behind it (an old Settings screen in one test). That is standard Android behavior, not a launcher bug.
+    - Three crashes about 3 s apart: launch, launch, then `loop` → recovery screen. Crash-loop guard verified.
+    - Reboot with the launcher paused: the default Home survived, Android started HomeActivity at boot (`paused`), and recovery was shown. `boot_count` went from 9 to 10.
+    - Not yet tested: a reboot while *not* paused (Home should open KOReader at boot); exiting KOReader from its own menu; KOReader missing.
+  - **Remote testing pitfalls on this Nook:**
+    - After an ADB wake-up (`KEYCODE_WAKEUP`), the Nook shows B&N's own **"Slide to unlock" lock screen**, even though `lockscreen.disabled=1`. It goes back to sleep within seconds despite `screen_off_timeout=300000`; ADB input apparently does not count as user activity.
+    - Home keys do nothing while the lock screen is up. This, not the launcher, explains the injected Home keys that "did nothing" during this session. An earlier claim that Home is swallowed while Olauncher is in front was made under these conditions and is **unconfirmed (probably wrong)**.
+    - `screencap` returns a black image while asleep. `uiautomator dump` fails ("null root node").
+    - Trust `dumpsys window` (`mCurrentFocus`), `dumpsys power` (`mWakefulness`) and logcat. Check wakefulness and the lock screen before interpreting any injected-key result. Physical presses with the Nook unlocked always reached the launcher.
 
 - **Future: Bluetooth page-turner support from KOReader** (the user asked on 2026-10-30; not started). **Scope: page-turner remotes only.** Headphones and audio are explicitly out of scope. The goal: turn Bluetooth on, pair or reconnect a remote (KOReader treats it as a keyboard), then turn it off to save battery.
   - Verified so far: the Nook reports `android.hardware.bluetooth` and `bluetooth_le`, `bluetooth_manager` runs, and `bluetooth_on` was 1 (on).
