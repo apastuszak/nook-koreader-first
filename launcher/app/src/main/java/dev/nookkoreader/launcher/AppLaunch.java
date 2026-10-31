@@ -6,7 +6,6 @@ import android.content.Intent;
 
 final class AppLaunch {
     static final String KOREADER = "org.koreader.launcher";
-    static final String OLAUNCHER = "app.olauncher";
     private AppLaunch() { }
 
     static boolean openPackage(Activity activity, String pkg) {

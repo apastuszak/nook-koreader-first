@@ -15,6 +15,8 @@ import android.widget.TextView;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /** Always-accessible launcher icon and latched escape screen. No privileged operations. */
 public final class RecoveryActivity extends Activity {
@@ -39,9 +41,7 @@ public final class RecoveryActivity extends Activity {
         root.addView(status);
         explain(getIntent());
         button(root, R.string.resume, v -> resumeReader());
-        button(root, R.string.olauncher, v -> {
-            if (!AppLaunch.openPackage(this, AppLaunch.OLAUNCHER)) unavailable();
-        });
+        button(root, R.string.other_launcher, v -> showOtherLaunchers());
         button(root, R.string.home_settings, v -> {
             // The user chooses a default in Android; this app never changes it itself.
             if (!AppLaunch.open(this, new Intent(Settings.ACTION_HOME_SETTINGS))) {
@@ -90,26 +90,74 @@ public final class RecoveryActivity extends Activity {
     }
 
     private void showApps() {
-        Intent launcher = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        List<ResolveInfo> apps = new ArrayList<>();
-        for (ResolveInfo info : getPackageManager().queryIntentActivities(launcher, 0)) {
+        Intent query = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        pickAndOpen(query, R.string.apps, info -> true, this::openFromDrawer);
+    }
+
+    // Every other installed Home app (e.g. Olauncher, the Nook's own launcher), so this
+    // works with whatever launcher the user keeps. Entries with negative priority, such
+    // as Android's FallbackHome (only for boot/encryption screens), are skipped, and so
+    // is com.android.settings in case a firmware gives FallbackHome a normal priority.
+    private void showOtherLaunchers() {
+        Intent query = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+        pickAndOpen(query, R.string.other_launcher,
+                info -> info.priority >= 0 && !"com.android.settings".equals(info.activityInfo.packageName),
+                this::openLauncher);
+    }
+
+    // Shared picker: other apps' exported activities matching query and keep. With one
+    // match it opens directly; with several it asks. Opening never changes the default.
+    private void pickAndOpen(Intent query, int title, Predicate<ResolveInfo> keep, Consumer<ResolveInfo> open) {
+        List<ResolveInfo> found = new ArrayList<>();
+        for (ResolveInfo info : getPackageManager().queryIntentActivities(query, 0)) {
             if (info.activityInfo != null && info.activityInfo.exported
-                    && !getPackageName().equals(info.activityInfo.packageName)) apps.add(info);
+                    && !getPackageName().equals(info.activityInfo.packageName) && keep.test(info)) {
+                found.add(info);
+            }
         }
-        apps.sort(new ResolveInfo.DisplayNameComparator(getPackageManager()));
-        String[] labels = new String[apps.size()];
-        for (int i = 0; i < apps.size(); i++) {
-            ResolveInfo info = apps.get(i);
+        if (found.isEmpty()) {
+            showStatus(R.string.no_other_launcher);
+            return;
+        }
+        if (found.size() == 1 && title == R.string.other_launcher) {
+            open.accept(found.get(0));
+            return;
+        }
+        found.sort(new ResolveInfo.DisplayNameComparator(getPackageManager()));
+        String[] labels = new String[found.size()];
+        for (int i = 0; i < found.size(); i++) {
+            ResolveInfo info = found.get(i);
             labels[i] = info.loadLabel(getPackageManager()) + "\n" + info.activityInfo.packageName;
+            if (sharesPackage(found, info)) labels[i] += " (" + info.activityInfo.name + ")";
         }
-        new AlertDialog.Builder(this).setTitle(R.string.apps)
-                .setItems(labels, (dialog, which) -> {
-                    ResolveInfo info = apps.get(which);
-                    Intent open = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-                            .setComponent(new ComponentName(info.activityInfo.packageName, info.activityInfo.name))
-                            .addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-                    if (!AppLaunch.open(this, open)) unavailable();
-                }).setNegativeButton(android.R.string.cancel, null).show();
+        new AlertDialog.Builder(this).setTitle(title)
+                .setItems(labels, (dialog, which) -> open.accept(found.get(which)))
+                .setNegativeButton(android.R.string.cancel, null).show();
+    }
+
+    // Two entries from one package would otherwise look identical in the list.
+    private static boolean sharesPackage(List<ResolveInfo> all, ResolveInfo info) {
+        for (ResolveInfo other : all) {
+            if (other != info && other.activityInfo.packageName.equals(info.activityInfo.packageName)) return true;
+        }
+        return false;
+    }
+
+    private void openFromDrawer(ResolveInfo info) {
+        Intent open = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+                .setComponent(new ComponentName(info.activityInfo.packageName, info.activityInfo.name))
+                .addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+        if (!AppLaunch.open(this, open)) unavailable();
+    }
+
+    // Prefers the launcher's app-drawer entry, the path verified on the Nook for
+    // Olauncher in 0.1.0. Falls back to an explicit start of its HOME component, which
+    // for a third-party caller is an ordinary activity start, not a Home-type one.
+    private void openLauncher(ResolveInfo info) {
+        if (AppLaunch.openPackage(this, info.activityInfo.packageName)) return;
+        Intent open = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                .setComponent(new ComponentName(info.activityInfo.packageName, info.activityInfo.name));
+        if (!AppLaunch.open(this, open)) unavailable();
     }
 
     // Back must not finish the recovery HOME task and re-enter an automatic loop.
@@ -117,7 +165,13 @@ public final class RecoveryActivity extends Activity {
     @Override public void onBackPressed() {
     }
 
-    private void unavailable() { status.setText(R.string.unavailable); }
+    private void unavailable() { showStatus(R.string.unavailable); }
+
+    // Keeps the "could not save the restart guard" warning visible under any later message.
+    private void showStatus(int message) {
+        status.setText(pausedOk ? getString(message)
+                : getString(R.string.storage) + "\n\n" + getString(message));
+    }
 
     private TextView label(String text, int size) {
         TextView view = new TextView(this);

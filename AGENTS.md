@@ -293,6 +293,14 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
     - No manifest permissions and no data beyond the guard's own timestamps. The app list only opens apps the user picks.
     - Accepted nuisance: HomeActivity and RecoveryActivity must be exported (for Home and the app drawer), so another installed app could start them to pause the launcher. That is the same effect as pressing Home 3 times; it grants no data or privileges, and one tap resumes.
 
+- **Launcher 0.1.4: launcher-agnostic (the user asked, 2026-10-30).**
+  - The recovery screen's "Open Olauncher" button is now **Open another launcher**. It lists every exported HOME activity of other apps, skipping negative-priority entries (Android's FallbackHome) and `com.android.settings`. With one match it opens directly; with several it asks. The default Home app is never changed.
+  - It opens each launcher through its app-drawer entry (`getLaunchIntentForPackage`), the path verified for Olauncher in 0.1.0, and falls back to an explicit start of its HOME component. For a third-party caller that is an ordinary activity start, not a Home-type one.
+  - The app list and the launcher picker share one `pickAndOpen` helper, so filtering (including `exported`) cannot drift apart again. Later messages keep the "could not save the restart guard" warning.
+  - Messages and the README no longer assume Olauncher; the README shows how to list Home apps and set one as the default over ADB. Olauncher remains this user's fallback, but nothing depends on it.
+  - On this Nook the picker lists `com.nook.partner/.FacadeLauncherActivity` and `app.olauncher/.MainActivity`. Over ADB, Olauncher opened. The Nook's facade did not come to the front (Olauncher stayed), possibly because it only forwards elsewhere; unknown.
+  - **Not yet verified on device:** the button itself, picking the Nook's launcher, and whether a physical Home press from another launcher returns to KOReader Home. The 0.1.0 note above that "its Olauncher button opens Olauncher" describes the replaced button.
+
 - **Future: Bluetooth page-turner support from KOReader** (the user asked on 2026-10-30; not started). **Scope: page-turner remotes only.** Headphones and audio are explicitly out of scope. The goal: turn Bluetooth on, pair or reconnect a remote (KOReader treats it as a keyboard), then turn it off to save battery.
   - Verified so far: the Nook reports `android.hardware.bluetooth` and `bluetooth_le`, `bluetooth_manager` runs, and `bluetooth_on` was 1 (on).
   - Approach: extend the existing helper and plugin; no separate app.

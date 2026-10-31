@@ -105,15 +105,18 @@ make install-launcher
 ```
 
 Installing does not select KOReader Home as your default. Android may clear the
-previous Home preference when a new Home app is installed; if prompted during
-testing, select **Olauncher**. Keep Olauncher installed.
+previous Home preference when a new Home app is installed; if prompted, pick the
+launcher you were using before. Keep at least one other launcher installed (for
+example the Nook's own launcher or Olauncher) as a way back.
 
-Open **KOReader Home** from Olauncher to reach its recovery screen. It offers:
+Open **KOReader Home** from your other launcher to reach its recovery screen. It offers:
 
 - **Open KOReader and resume Home**: opens KOReader and enables automatic opening.
-- **Open Olauncher**: opens Olauncher without changing the default Home app.
+- **Open another launcher**: opens any other installed launcher (if there are several,
+  you pick one) without changing the default Home app.
 - **Choose default Home app**: opens Android's default-app settings (on this Nook,
-  select **Home app** on that screen). This is where you can switch back to Olauncher.
+  select **Home app** on that screen). This is where you can switch back to your
+  other launcher permanently.
 - **Android Settings** and **All apps**.
 
 Once KOReader Home is the default, press **Home 3 times, about 2 seconds apart**,
@@ -133,14 +136,19 @@ To open recovery over USB:
 adb shell am start -n dev.nookkoreader.launcher/.RecoveryActivity
 ```
 
-To restore Olauncher over USB:
+To switch the default back to another launcher over USB, list the Home apps and set
+one (for example Olauncher, or the Nook's own launcher):
 
 ```sh
+adb shell cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.HOME
 adb shell cmd package set-home-activity app.olauncher/.MainActivity
+# Use a component exactly as the first command lists it. The Nook's own launcher is
+# listed as com.nook.partner/.FacadeLauncherActivity, but setting it as the default
+# has not been tested.
 adb shell input keyevent KEYCODE_HOME
 ```
 
-To remove only the launcher, first restore Olauncher, then run:
+To remove only the launcher, first switch the default to another launcher, then run:
 
 ```sh
 adb uninstall dev.nookkoreader.launcher

@@ -2,15 +2,16 @@
 <resources>
     <string name="app_name">KOReader Home</string>
     <string name="resume">Open KOReader and resume Home</string>
-    <string name="olauncher">Open Olauncher</string>
+    <string name="other_launcher">Open another launcher</string>
+    <string name="no_other_launcher">No other app was found. Use All apps or Android Settings.</string>
     <string name="home_settings">Choose default Home app</string>
     <string name="android_settings">Android Settings</string>
     <string name="apps">All apps</string>
     <string name="paused">Automatic opening is paused. Use the buttons below, or resume KOReader.</string>
     <string name="loop">Home was pressed 3 times, or KOReader closed repeatedly, within 10 seconds. Automatic opening is paused.</string>
     <string name="missing">KOReader is missing, disabled, or could not be opened. Automatic opening is paused.</string>
-    <string name="storage">Could not save the restart guard. Automatic opening is paused. You can still use Olauncher or All apps.</string>
-    <string name="guard_unavailable">The restart guard is unavailable. Use All apps to open KOReader, or return to Olauncher.</string>
+    <string name="storage">Could not save the restart guard. Automatic opening is paused. You can still open another launcher or use All apps.</string>
+    <string name="guard_unavailable">The restart guard is unavailable. Use All apps to open KOReader, or open another launcher.</string>
     <string name="unavailable">That app or settings screen is unavailable. Try All apps or Android Settings.</string>
-    <string name="recovery_tip">When KOReader Home is your default, press Home 3 times, about 2 seconds apart, to return here. This screen also opens from the KOReader Home app icon. Opening Olauncher does not change your default Home app.</string>
+    <string name="recovery_tip">When KOReader Home is your default, press Home 3 times, about 2 seconds apart, to return here. This screen also opens from the KOReader Home app icon. Opening another launcher does not change your default Home app.</string>
 </resources>
