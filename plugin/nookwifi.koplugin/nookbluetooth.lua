@@ -163,7 +163,11 @@ function NookWifi:watchForRemote(touchmenu_instance)
             if dev.connection == "connected" then
                 self.bt_cached, self.bt_paired = nil, nil
                 UIManager:show(InfoMessage:new{ text = T(_("%1 connected."), deviceName(dev)), timeout = 2 })
-                if touchmenu_instance then touchmenu_instance:updateItems() end
+                -- Only if the menu is still open: refreshing a closed TouchMenu
+                -- makes KOReader repaint the whole screen (an e-ink flash).
+                if touchmenu_instance and UIManager:isWidgetShown(touchmenu_instance.show_parent) then
+                    touchmenu_instance:updateItems()
+                end
                 return
             end
         end

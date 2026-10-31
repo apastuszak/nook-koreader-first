@@ -51,6 +51,7 @@ package.preload["ui/uimanager"] = function()
             end
         end,
         broadcastEvent = function(_, ev) table.insert(events, ev.name) end,
+        isWidgetShown = function(_, w) return w ~= nil and w.shown == true end,
     }
 end
 package.preload["ui/event"] = function()
@@ -1208,7 +1209,7 @@ test("bt: a remote connecting after Bluetooth turned on is announced and refresh
     btStartOff()
     local plugin = newBtPlugin()
     local updates = 0
-    local touchmenu = { updateItems = function() updates = updates + 1 end }
+    local touchmenu = { show_parent = { shown = true }, updateItems = function() updates = updates + 1 end }
     plugin:setBluetooth(true, touchmenu)
     -- The user presses a button on the remote 20 s later.
     local pressed = false
@@ -1225,6 +1226,28 @@ test("bt: a remote connecting after Bluetooth turned on is announced and refresh
     eq(lastMessage(), "8BitDo Micro gamepad connected.", "message")
     assert(updates >= 2, "menu not refreshed after the remote connected")
     assert(now < 25, "kept watching after the remote connected")
+end)
+
+test("bt: a remote connecting after the menu closed does not refresh the closed menu", function()
+    btStartOff()
+    local plugin = newBtPlugin()
+    local updates = 0
+    local touchmenu = { show_parent = { shown = true }, updateItems = function() updates = updates + 1 end }
+    plugin:setBluetooth(true, touchmenu)
+    local orig = btCall
+    local before
+    btCall = function(m, a)
+        if not before and now >= 20 and bt.enabled then
+            before = updates
+            touchmenu.show_parent.shown = false -- the user closed the menu meanwhile
+            bt.paired[1].connection = "connected"
+        end
+        return orig(m, a)
+    end
+    runScheduled()
+    btCall = orig
+    eq(lastMessage(), "8BitDo Micro gamepad connected.", "message")
+    eq(updates, before, "menu refreshes after it closed")
 end)
 
 test("bt: watching for a remote gives up after a minute", function()

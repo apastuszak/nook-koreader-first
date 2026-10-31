@@ -25,7 +25,9 @@ import static dev.nookwifi.helper.BluetoothRules.isLikelyRemote;
 import static dev.nookwifi.helper.BluetoothRules.isValidAddress;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -214,13 +216,19 @@ final class BluetoothOps {
         if (adapter == null) {
             return putState(Replies.error("bt_unavailable"));
         }
-        JSONArray devices = new JSONArray();
+        // Copied first, so the receiver is not held up by the calls below. The
+        // name is checked before describing: each describe() makes several calls
+        // into the Bluetooth service, the plugin polls every 0.5 s, and most
+        // devices found nearby have no name (19 devices in Stage 0).
+        List<BluetoothDevice> snapshot;
         synchronized (found) {
-            for (BluetoothDevice device : found.values()) {
-                JSONObject d = describe(device);
-                if (d.has("name")) {
-                    devices.put(d);
-                }
+            snapshot = new ArrayList<>(found.values());
+        }
+        JSONArray devices = new JSONArray();
+        for (BluetoothDevice device : snapshot) {
+            String name = device.getName();
+            if (name != null && !name.isEmpty()) {
+                devices.put(describe(device));
             }
         }
         JSONObject reply = putState(Replies.ok());
