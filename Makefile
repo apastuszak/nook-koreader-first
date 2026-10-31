@@ -98,9 +98,9 @@ dist: check release release-launcher
 	cp $(RELEASE_APK) $(DIST)/nookwifi-helper-$(VERSION).apk
 	cp $(LAUNCHER_APK) $(DIST)/koreader-home-$(LAUNCHER_VERSION).apk
 	cp $(HOME_PATCH) $(DIST)/
-	cp scripts/install.sh $(DIST)/
+	cp scripts/install.sh scripts/install.ps1 scripts/install.cmd $(DIST)/
 	cd plugin && zip -qrX ../$(DIST)/nookwifi.koplugin-$(VERSION).zip nookwifi.koplugin -x '*.DS_Store'
-	cd $(DIST) && shasum -a 256 *.apk *.zip *.lua *.sh > SHA256SUMS
+	cd $(DIST) && shasum -a 256 *.apk *.zip *.lua *.sh *.ps1 *.cmd > SHA256SUMS
 	@ls -la $(DIST)
 
 # Separate optional launcher. None of these targets changes the default Home app.

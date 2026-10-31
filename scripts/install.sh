@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs Nook Wi-Fi for KOReader on a Nook GlowLight 4 Plus over USB (ADB), from the
+# Installs KOReader-first Nook on a Nook GlowLight 4 Plus over USB (ADB), from the
 # release files next to this script, and sets the permissions the apps need.
 #
 #   sh install.sh                     helper + plugin + permissions

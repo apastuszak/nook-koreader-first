@@ -29,13 +29,12 @@ The helper and plugin keep the names they started with ("Nook Wi-Fi"), because r
 
 ### Quick install over USB
 
-If you have `adb` (Android platform-tools) on a Mac or Linux computer, the release's `install.sh` does every step below in one go: it checks the files against `SHA256SUMS`, installs the helper, gives it its permissions, and copies the plugin. It also gives KOReader the permissions it needs for the frontlight (brightness and warmth) and for its files, which you would otherwise allow by hand. Put all the release files in one folder, connect the Nook with USB debugging allowed, and run:
+The release's install script does every step below in one go: it checks the files against `SHA256SUMS`, installs the helper, gives it its permissions, and copies the plugin. It also gives KOReader the permissions it needs for the frontlight (brightness and warmth) and for its files, which you would otherwise allow by hand. Put all the release files in one folder and connect the Nook with USB debugging allowed. Then:
 
-```sh
-sh install.sh
-```
+- **Mac or Linux** (needs `adb` from Android platform-tools): `sh install.sh`
+- **Windows**: double-click `install.cmd`, or run `install.cmd` in a Command Prompt in that folder. If `adb` is not installed, it offers to download Google's platform-tools for you. Windows may also need a USB driver before it can see the Nook over ADB. The Windows script has not yet been tried on a Windows PC.
 
-To also install the optional [KOReader Home launcher](#optional-koreader-home-launcher) and its KOReader patch, add `--launcher`; add `--set-home` as well to make it the default Home app. The script never uninstalls anything and changes the default Home app only with `--set-home`. Afterwards, exit KOReader and open it again.
+To also install the optional [KOReader Home launcher](#optional-koreader-home-launcher) and its KOReader patch, add `--launcher` (for example `install.cmd --launcher`); add `--set-home` as well to make it the default Home app. The script never uninstalls anything and changes the default Home app only with `--set-home`. Afterwards, exit KOReader and open it again.
 
 ### Manual install
 
