@@ -65,9 +65,9 @@ If a new network's password is wrong, the plugin says so and removes the network
 
 After Bluetooth turns on, a remote usually reconnects only when you **press one of its buttons**; that first press may not turn a page. For a minute after you turn Bluetooth on, the plugin tells you when a remote connects.
 
-### Power off after sleeping
+### Nook power off after sleeping
 
-**Settings → Device → Power off after sleeping** sets how long the Nook may sleep before it powers itself off: never (the Nook's default), 1 hour, 6 hours, 1 day, 3 days or 1 week. Powering off saves battery when the Nook is not used for a while; turning it on again takes a long press of the power button and a full start-up.
+**Settings → Device → Nook power off after sleeping** sets how long the Nook may sleep before it powers itself off: never (the Nook's default), 1 hour, 6 hours, 1 day, 3 days or 1 week. Powering off saves battery when the Nook is not used for a while; turning it on again takes a long press of the power button and a full start-up.
 
 The first time you choose a value, the plugin asks you to allow **Nook Wi-Fi Helper** to modify system settings and opens Android's screen for it: turn the switch on, go back to KOReader, and choose again.
 
@@ -78,7 +78,7 @@ For the screen timeout (how long until the Nook sleeps), use KOReader's own **Se
 - **Supported security:** open networks and WPA/WPA2 Personal. WPA2/WPA3 mixed networks join as WPA2. **Not supported:** WPA3-only, Enterprise (802.1X), WEP, and hidden networks. Use Android Wi-Fi settings for those.
 - **Changing a saved password:** the plugin cannot change the password of a network that is already saved, because the Nook's firmware does not allow it. If a saved network's password stops working, the plugin offers to open Android Wi-Fi settings: forget the network there, then join it again from **Scan for networks…**.
 - **Removing saved networks:** the plugin cannot remove networks that were saved by the Nook or in Android settings. Use Android Wi-Fi settings.
-- **Power off after sleeping:** this is a hidden setting of the Nook's firmware. It works on the Nook GlowLight 4 Plus (firmware 8.1.7); other firmware may ignore it or refuse the change.
+- **Nook power off after sleeping:** this is a hidden setting of the Nook's firmware. It works on the Nook GlowLight 4 Plus (firmware 8.1.7); other firmware may ignore it or refuse the change.
 - **Bluetooth:** tested with an 8BitDo Micro, which pairs without a PIN. A remote that needs a PIN shows Android's own pairing dialog. If pairing or forgetting does not work for your remote, use **Open Android Bluetooth settings**.
 - **After a KOReader update:** the plugin adjusts KOReader's internal Wi-Fi handling. If **Settings → Network → Wi-Fi connection** opens Android settings again after updating KOReader, the update changed that code. The **Nook Wi-Fi** menu still works; please report the problem.
 
@@ -100,7 +100,7 @@ Always update the helper and the plugin together; **Helper info** shows both ver
 2. Uninstall **Nook Wi-Fi Helper** in Android Settings → Apps, or over USB with `adb uninstall dev.nookwifi.helper`.
 3. Exit KOReader and open it again. KOReader's Wi-Fi items go back to opening Android settings.
 
-Networks you joined, and remotes you paired, stay saved in Android. If you set **Power off after sleeping**, uninstalling the helper turns it back to never (Android removes the setting, and the Nook treats a missing setting as never).
+Networks you joined, and remotes you paired, stay saved in Android. If you set **Nook power off after sleeping**, uninstalling the helper turns it back to never (Android removes the setting, and the Nook treats a missing setting as never).
 
 ## Troubleshooting
 

@@ -1704,7 +1704,7 @@ end
 test("power: menu shows the current timeout", function()
     local _, item = newPowerPlugin()
     eq(item.sorting_hint, "device", "menu section")
-    eq(item.text_func(), "Power off after sleeping: Never", "text")
+    eq(item.text_func(), "Nook power off after sleeping: Never", "text")
     eq(item.enabled_func(), true, "enabled")
     local items = item.sub_item_table_func()
     local texts = {}
@@ -1737,7 +1737,7 @@ test("power: choosing with permission sets it and reports the value read back", 
     eq(lastMessage(), "The Nook will power off after sleeping for 1 day.", "message")
     eq(tm.updates, 1, "menu refreshed")
     eq(items[4].checked_func(), true, "1 day checked") -- not served from the old cache
-    eq(item.text_func(), "Power off after sleeping: 1 day", "text")
+    eq(item.text_func(), "Nook power off after sleeping: 1 day", "text")
     items[1].callback(tm) -- Never
     eq(wifi.power.ms, 0, "back to never")
     eq(lastMessage(), "The Nook will not power off by itself.", "message")
@@ -1746,7 +1746,7 @@ end)
 test("power: a value set some other way is shown and checked", function()
     wifi.power.ms = 120000 -- e.g. over ADB
     local _, item = newPowerPlugin()
-    eq(item.text_func(), "Power off after sleeping: 2 minutes", "text")
+    eq(item.text_func(), "Nook power off after sleeping: 2 minutes", "text")
     local items = item.sub_item_table_func()
     local custom = items[7]
     eq(custom.text, "Custom: 2 minutes", "custom item")
@@ -1760,7 +1760,7 @@ test("power: odd values set some other way are shown as stored", function()
             { 14 * 86400000, "14 days" }, { -5, "-5 ms" } }) do
         wifi.power.ms = case[1]
         local _, item = newPowerPlugin()
-        eq(item.text_func(), "Power off after sleeping: " .. case[2], "text for " .. case[1])
+        eq(item.text_func(), "Nook power off after sleeping: " .. case[2], "text for " .. case[1])
     end
 end)
 
@@ -1768,7 +1768,7 @@ test("power: a reply without a value does not crash the menu or the change", fun
     wifi.power.write_allowed = true
     wifi.power_no_value = true
     local plugin, item = newPowerPlugin()
-    eq(item.text_func(), "Power off after sleeping", "text")
+    eq(item.text_func(), "Nook power off after sleeping", "text")
     eq(item.enabled_func(), false, "enabled")
     plugin:setPowerOffTimeout(86400000)
     assert(lastMessage():find("bad_reply", 1, true), lastMessage())
@@ -1777,14 +1777,14 @@ end)
 test("power: without the helper the menu is disabled", function()
     helper_missing = true
     local _, item = newPowerPlugin()
-    eq(item.text_func(), "Power off after sleeping", "text")
+    eq(item.text_func(), "Nook power off after sleeping", "text")
     eq(item.enabled_func(), false, "enabled")
 end)
 
 test("power: an older helper without the timer disables the menu", function()
     wifi.power_unsupported = true
     local _, item = newPowerPlugin()
-    eq(item.text_func(), "Power off after sleeping", "text")
+    eq(item.text_func(), "Nook power off after sleeping", "text")
     eq(item.enabled_func(), false, "enabled")
 end)
 

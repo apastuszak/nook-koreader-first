@@ -129,8 +129,8 @@ function NookWifi:addPowerMenu(menu_items)
     menu_items.nookpower = {
         text_func = function()
             local ms = self:powerOffTimeout()
-            if not ms then return _("Power off after sleeping") end
-            return T(_("Power off after sleeping: %1"), timeoutText(ms))
+            if not ms then return _("Nook power off after sleeping") end
+            return T(_("Nook power off after sleeping: %1"), timeoutText(ms))
         end,
         sorting_hint = "device",
         enabled_func = function() return self:powerOffTimeout() ~= nil end,
