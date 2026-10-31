@@ -96,13 +96,22 @@ Networks you joined stay saved in Android.
 the Wi-Fi helper and plugin. When selected as the default Home app, it opens
 KOReader whenever Home is invoked. It requests no permissions and uses no
 network access. It has been tested as the default launcher on a GlowLight 4 Plus:
-Home, the recovery screen, recovering from a KOReader crash, and rebooting.
+Home, the recovery screen, recovering from a KOReader crash, rebooting, and **Restart
+KOReader** with the patch.
 
-Install `koreader-home-<version>.apk` from `dist/`, or use:
+Install `koreader-home-<version>.apk` from `dist/`, and copy
+`2-koreader-home.lua` from `dist/` to `koreader/patches/` on the Nook. Or use:
 
 ```sh
 make install-launcher
 ```
+
+The patch turns KOReader's **Exit** into **Restart KOReader**: it returns to Home,
+so KOReader reopens. Without it, Android shows whatever app happens to be open
+behind KOReader (for example a launcher you opened from the recovery screen). It
+does nothing unless KOReader Home is the default Home app; then the menu item keeps
+its usual name, **Exit**, and works as before. KOReader loads patches at startup, so
+exit and reopen KOReader once after copying it.
 
 Installing does not select KOReader Home as your default. Android may clear the
 previous Home preference when a new Home app is installed; if prompted, pick the
@@ -111,7 +120,8 @@ example the Nook's own launcher or Olauncher) as a way back.
 
 Open **KOReader Home** from your other launcher to reach its recovery screen. It offers:
 
-- **Open KOReader and resume Home**: opens KOReader and enables automatic opening.
+- **Open KOReader and resume Home**: enables automatic opening again and opens KOReader
+  through Home.
 - **Open another launcher**: opens any other installed launcher (if there are several,
   you pick one) without changing the default Home app.
 - **Choose default Home app**: opens Android's default-app settings (on this Nook,
@@ -124,8 +134,10 @@ to open recovery. Touch the button for about a second each time: the Home button
 capacitive, and a very quick tap may not register at all. Quick repeated taps do
 not work either: the button only registers again 1–2 seconds after each press, so
 fast taps count as one. Any three Home
-presses within 10 seconds open recovery, which also protects against a KOReader
-that keeps closing: the third return opens recovery instead of KOReader. Recovery
+presses within 30 seconds open recovery, which also protects against a KOReader
+that keeps closing: the third return opens recovery instead of KOReader. With the
+patch installed, **Restart KOReader** counts as a Home press too, so using it 3 times
+within 30 seconds also opens recovery. Recovery
 stays active across process restarts and reboots until you choose **Open KOReader
 and resume Home**. KOReader missing or unable to open also leads to recovery.
 Opening the app icon always goes directly to recovery.
@@ -152,7 +164,10 @@ To remove only the launcher, first switch the default to another launcher, then 
 
 ```sh
 adb uninstall dev.nookkoreader.launcher
+adb shell rm /sdcard/koreader/patches/2-koreader-home.lua
 ```
+
+The patch is harmless if left behind: it does nothing unless KOReader Home is the default.
 
 Updates use `adb install -r koreader-home-<version>.apk`; the signing key must
 match. The launcher's version is independent of the Wi-Fi helper/plugin version.

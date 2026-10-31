@@ -78,15 +78,38 @@ public final class RecoveryActivity extends Activity {
 
     private void resumeReader() {
         LaunchState state = new LaunchState(this);
+        if (isDefaultHome() && state.resume() && startHome()) {
+            finish();
+            return;
+        }
         String reason = state.enter(true);
         if (reason != null) {
             boolean saved = state.pause();
             status.setText(!saved || "storage".equals(reason) ? R.string.storage : R.string.guard_unavailable);
-        } else if (AppLaunch.openPackage(this, AppLaunch.KOREADER)) {
+        } else if (AppLaunch.openReader(this)) {
             finish();
         } else {
             status.setText(state.pause() ? R.string.missing : R.string.storage);
         }
+    }
+
+    private boolean isDefaultHome() {
+        ResolveInfo home = getPackageManager().resolveActivity(homeIntent(), 0);
+        return home != null && home.activityInfo != null
+                && getPackageName().equals(home.activityInfo.packageName);
+    }
+
+    // An implicit HOME intent with HOME as its only category starts HomeActivity as
+    // Android's Home, which then opens KOReader. A KOReader task opened from Home
+    // returns to Home on exit; one opened from this screen returns to whatever app
+    // was open behind it (e.g. another launcher picked here). Explicit components
+    // would make it an ordinary activity start, so the intent must stay implicit.
+    private static Intent homeIntent() {
+        return new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+    }
+
+    private boolean startHome() {
+        return AppLaunch.open(this, homeIntent());
     }
 
     private void showApps() {

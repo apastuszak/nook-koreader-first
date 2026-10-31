@@ -15,6 +15,9 @@ LAUNCHER_APK := launcher/app/build/outputs/apk/release/app-release.apk
 LAUNCHER_VERSION := $(shell sed -n 's/.*versionName = "\(.*\)"/\1/p' launcher/app/build.gradle.kts)
 PLUGIN := plugin/nookwifi.koplugin
 DEVICE_PLUGINS := /sdcard/koreader/plugins
+# KOReader patch that returns to Home when KOReader exits (part of the launcher).
+HOME_PATCH := launcher/patch/2-koreader-home.lua
+DEVICE_PATCHES := /sdcard/koreader/patches
 # Helper and plugin share one version number; dist checks they agree.
 VERSION := $(shell sed -n 's/.*versionName = "\(.*\)"/\1/p' helper/app/build.gradle.kts)
 PLUGIN_VERSION := $(shell sed -n 's/^local PLUGIN_VERSION = "\(.*\)"/\1/p' $(PLUGIN)/main.lua)
@@ -91,17 +94,21 @@ dist: check release release-launcher
 	rm -rf $(DIST) && mkdir -p $(DIST)
 	cp $(RELEASE_APK) $(DIST)/nookwifi-helper-$(VERSION).apk
 	cp $(LAUNCHER_APK) $(DIST)/koreader-home-$(LAUNCHER_VERSION).apk
+	cp $(HOME_PATCH) $(DIST)/
 	cd plugin && zip -qrX ../$(DIST)/nookwifi.koplugin-$(VERSION).zip nookwifi.koplugin -x '*.DS_Store'
-	cd $(DIST) && shasum -a 256 *.apk *.zip > SHA256SUMS
+	cd $(DIST) && shasum -a 256 *.apk *.zip *.lua > SHA256SUMS
 	@ls -la $(DIST)
 
 # Separate optional launcher. None of these targets changes the default Home app.
-.PHONY: build-launcher check-launcher release-launcher install-launcher launcher-recovery uninstall-launcher logs-launcher
+.PHONY: build-launcher check-launcher release-launcher install-launcher install-launcher-patch launcher-recovery \
+	uninstall-launcher logs-launcher
 build-launcher:
 	cd launcher && ./gradlew --console=plain assembleDebug
 
 check-launcher:
 	cd launcher && ./gradlew --console=plain lint testDebugUnitTest
+	$(LUACHECK) --no-color launcher/patch
+	luajit launcher/patch/test.lua
 
 release-launcher:
 	@test -f helper/keystore.properties || { echo "helper/keystore.properties is missing"; exit 1; }
@@ -109,12 +116,18 @@ release-launcher:
 
 install-launcher: check release-launcher
 	adb install -r $(LAUNCHER_APK)
+	adb push $(HOME_PATCH) $(DEVICE_PATCHES)/
+
+# Only the KOReader patch; KOReader loads it at its next start.
+install-launcher-patch:
+	adb push $(HOME_PATCH) $(DEVICE_PATCHES)/
 
 launcher-recovery:
 	adb shell am start -n $(LAUNCHER_PKG)/.RecoveryActivity
 
 uninstall-launcher:
 	adb uninstall $(LAUNCHER_PKG)
+	adb shell rm -f $(DEVICE_PATCHES)/$(notdir $(HOME_PATCH))
 
 logs-launcher:
 	adb logcat -v time | grep --line-buffered -E 'KOReaderHome|KEYCODE_HOME'

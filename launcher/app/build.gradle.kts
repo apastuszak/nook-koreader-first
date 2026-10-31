@@ -20,8 +20,8 @@ android {
         minSdk = 27
         // Matches the Nook GlowLight 4 Plus (API 27).
         targetSdk = 27
-        versionCode = 6
-        versionName = "0.1.5"
+        versionCode = 7
+        versionName = "0.1.6"
     }
 
     compileOptions {

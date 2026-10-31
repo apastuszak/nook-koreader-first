@@ -28,6 +28,15 @@ final class LaunchState {
         return paused ? "loop" : null;
     }
 
+    /**
+     * Manual resume handed to HomeActivity: clears the pause and the history, so the
+     * HOME entry that follows records the only launch. Returns false if not saved.
+     */
+    @SuppressLint("ApplySharedPref")
+    boolean resume() {
+        return prefs.edit().putString("history", "").putBoolean("paused", false).commit();
+    }
+
     /** Returns false if the pause flag could not be saved. */
     @SuppressLint("ApplySharedPref")
     boolean pause() {

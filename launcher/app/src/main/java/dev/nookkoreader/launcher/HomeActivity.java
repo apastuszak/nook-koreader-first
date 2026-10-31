@@ -28,7 +28,7 @@ public final class HomeActivity extends Activity {
         String reason = state.enter(false);
         Log.i(TAG, "HOME entry via " + via + " at " + SystemClock.elapsedRealtime() + " ms: "
                 + (reason == null ? "launch KOReader" : reason));
-        if (reason == null && AppLaunch.openPackage(this, AppLaunch.KOREADER)) {
+        if (reason == null && AppLaunch.openReader(this)) {
             finish();
             return;
         }

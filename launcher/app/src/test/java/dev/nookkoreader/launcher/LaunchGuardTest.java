@@ -6,13 +6,15 @@ import static org.junit.Assert.*;
 public class LaunchGuardTest {
     @Test public void ordinaryHomeLaunches() {
         assertEquals(LaunchGuard.Decision.LAUNCH, LaunchGuard.enter("", 9, 9, 100).decision);
-        assertEquals(LaunchGuard.Decision.LAUNCH, LaunchGuard.enter("100,500", 9, 9, 11000).decision);
+        assertEquals(LaunchGuard.Decision.LAUNCH, LaunchGuard.enter("100,500", 9, 9, 31000).decision);
     }
 
-    @Test public void anyThreeHomeEntriesWithinTenSecondsOpenRecovery() {
+    @Test public void anyThreeHomeEntriesWithinThirtySecondsOpenRecovery() {
         // Fast or slow: the Nook's button cannot produce a fast triple anyway.
         assertEquals(LaunchGuard.Decision.LOOP, LaunchGuard.enter("100,700", 9, 9, 1600).decision);
         assertEquals(LaunchGuard.Decision.LOOP, LaunchGuard.enter("100,2400", 9, 9, 4700).decision);
+        // Three KOReader exits, about 7 s apart as measured on the Nook.
+        assertEquals(LaunchGuard.Decision.LOOP, LaunchGuard.enter("1000,8000", 9, 9, 15000).decision);
     }
 
     @Test public void crashReturnsStopBeforeThirdLaunch() {
@@ -24,8 +26,8 @@ public class LaunchGuardTest {
     }
 
     @Test public void oldAttemptsExpireButBoundaryIsIncluded() {
-        assertEquals(LaunchGuard.Decision.LOOP, LaunchGuard.enter("100,3000", 9, 9, 10100).decision);
-        assertEquals(LaunchGuard.Decision.LAUNCH, LaunchGuard.enter("100,3000", 9, 9, 10101).decision);
+        assertEquals(LaunchGuard.Decision.LOOP, LaunchGuard.enter("100,3000", 9, 9, 30100).decision);
+        assertEquals(LaunchGuard.Decision.LAUNCH, LaunchGuard.enter("100,3000", 9, 9, 30101).decision);
     }
 
     @Test public void rebootDiscardsHistory() {

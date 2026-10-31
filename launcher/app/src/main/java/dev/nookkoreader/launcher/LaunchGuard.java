@@ -12,7 +12,10 @@ import java.util.List;
  * (seen in logcat on 2026-10-30).
  */
 final class LaunchGuard {
-    static final long LOOP_MS = 10000;
+    // 30 s, not 10: exiting KOReader returns to Home (the 2-koreader-home.lua patch),
+    // and one exit-and-reopen cycle took about 7 s on the Nook, so three exits never
+    // fitted in 10 s. The longer window also catches crashes a few seconds after opening.
+    static final long LOOP_MS = 30000;
     // UNAVAILABLE: history unreadable or the clock/boot count unknown, so the guard
     // cannot tell; it fails closed, but is not a loop.
     enum Decision { LAUNCH, LOOP, UNAVAILABLE }
