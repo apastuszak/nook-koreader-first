@@ -287,9 +287,10 @@ function NookWifi:forgetRemote(dev, touchmenu_instance)
     end
     local finish = self:beginOperation(T(_("Forgetting %1…"), name), touchmenu_instance)
     self:pollState(FORGET_TIMEOUT_S, finish, function(r)
-        -- Android 8.1 also reports "none" while the Bluetooth service is down
-        -- (e.g. turned off mid-removal), so only trust it while Bluetooth is on.
-        if not r.enabled or (r.device or {}).bond ~= "none" then return false end
+        -- Not bond == "none": Android 8.1 also reports that when the Bluetooth
+        -- service is down or the query fails. The helper sets forgotten from
+        -- Android's own bond-removed broadcast.
+        if not (r.device or {}).forgotten then return false end
         self.bt_paired = nil
         finish(T(_("Forgot %1."), name))
         -- The paired list was built when it opened and still shows the remote;

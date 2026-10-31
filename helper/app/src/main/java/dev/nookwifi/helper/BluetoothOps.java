@@ -26,6 +26,7 @@ import static dev.nookwifi.helper.BluetoothRules.isValidAddress;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -69,6 +70,13 @@ final class BluetoothOps {
     private volatile boolean scanStarted;
     private volatile boolean scanFinished;
 
+    // Removals requested by forget(), by address: false until Android's
+    // BOND_STATE_CHANGED broadcast reports the bond gone. getBondState() cannot
+    // confirm it, because Android 8.1 also returns BOND_NONE when the Bluetooth
+    // service is down or the call fails. In memory only: if Android kills the
+    // helper mid-removal, the plugin times out and points to Android settings.
+    private final Map<String, Boolean> removals = new HashMap<>();
+
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context c, Intent intent) {
@@ -87,6 +95,16 @@ final class BluetoothOps {
             } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
                 if (scanRequested && scanStarted) {
                     scanFinished = true;
+                }
+            } else if (BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(action)) {
+                BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                int bond = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR);
+                if (device != null && bond == BluetoothDevice.BOND_NONE) {
+                    synchronized (removals) {
+                        if (removals.containsKey(device.getAddress())) {
+                            removals.put(device.getAddress(), true);
+                        }
+                    }
                 }
             }
         }
@@ -113,6 +131,7 @@ final class BluetoothOps {
         filter.addAction(BluetoothDevice.ACTION_FOUND);
         filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_STARTED);
         filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
+        filter.addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
         // Lives as long as the helper process, like WifiOps' receiver.
         this.context.registerReceiver(receiver, filter);
     }
@@ -160,7 +179,10 @@ final class BluetoothOps {
         return Replies.put(putState(Replies.ok()), "devices", devices);
     }
 
-    /** One device by address (arg): the same fields as in listPaired. */
+    /**
+     * One device by address (arg): the same fields as in listPaired, plus
+     * "forgotten" (true once Android reported the bond removed after btForget).
+     */
     JSONObject device(String arg) {
         if (adapter == null) {
             return putState(Replies.error("bt_unavailable"));
@@ -168,7 +190,11 @@ final class BluetoothOps {
         if (!isValidAddress(arg)) {
             return Replies.error("bad_argument");
         }
-        return Replies.put(putState(Replies.ok()), "device", describe(adapter.getRemoteDevice(arg)));
+        JSONObject device = describe(adapter.getRemoteDevice(arg));
+        synchronized (removals) {
+            Replies.put(device, "forgotten", Boolean.TRUE.equals(removals.get(arg)));
+        }
+        return Replies.put(putState(Replies.ok()), "device", device);
     }
 
     /**
@@ -256,6 +282,9 @@ final class BluetoothOps {
         if (device.getBondState() == BluetoothDevice.BOND_BONDED) {
             return putState(Replies.error("already_paired"));
         }
+        synchronized (removals) {
+            removals.remove(arg);
+        }
         // Discovery slows bonding down; Android recommends stopping it first.
         adapter.cancelDiscovery();
         return putState(device.createBond() ? Replies.ok() : Replies.error("request_rejected"));
@@ -265,7 +294,8 @@ final class BluetoothOps {
      * Forgets (unpairs) the paired device at arg, through the hidden
      * BluetoothDevice.removeBond(). It worked from a normal app on the Nook
      * (Stage 0); if a firmware hides it, the reply is "not_supported" and the
-     * plugin points to Android's Bluetooth settings.
+     * plugin points to Android's Bluetooth settings. Android queues the removal;
+     * callers poll device(arg) until "forgotten".
      */
     JSONObject forget(String arg) {
         if (adapter == null) {
@@ -278,13 +308,25 @@ final class BluetoothOps {
         if (device.getBondState() != BluetoothDevice.BOND_BONDED) {
             return putState(Replies.error("not_paired"));
         }
-        boolean removed;
+        // Recorded before the request, so a broadcast that arrives at once counts.
+        synchronized (removals) {
+            removals.put(arg, false);
+        }
+        boolean removed = false;
         try {
             Method removeBond = BluetoothDevice.class.getMethod("removeBond");
             removed = Boolean.TRUE.equals(removeBond.invoke(device));
         } catch (ReflectiveOperationException e) {
             Log.w(HelperProvider.TAG, "removeBond unavailable: " + e.getClass().getSimpleName());
             return putState(Replies.error("not_supported"));
+        } finally {
+            if (!removed) {
+                // Not requested, so a later removal (e.g. in Android settings)
+                // must not be taken for this one.
+                synchronized (removals) {
+                    removals.remove(arg);
+                }
+            }
         }
         return putState(removed ? Replies.ok() : Replies.error("request_rejected"));
     }

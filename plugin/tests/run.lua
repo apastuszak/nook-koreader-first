@@ -196,7 +196,7 @@ local bt
 local function resetBt()
     bt = {
         available = true, enabled = true, state = "on", hid_ready = true, screen_on = true,
-        polls = 0, opened_settings = 0, scan_stops = 0,
+        polls = 0, opened_settings = 0, scan_stops = 0, removed = {},
         paired = {
             { address = "AA:00:00:00:00:01", name = "8BitDo Micro gamepad", remote = true, connection = "connected" },
         },
@@ -231,6 +231,7 @@ local function btTick()
             if d == bt.forgetting.dev then
                 table.remove(bt.paired, i)
                 d.bond, d.connection = "none", "disconnected"
+                bt.removed[d.address] = true -- the helper saw BOND_STATE_CHANGED to none
             end
         end
         bt.forgetting = nil
@@ -266,7 +267,7 @@ local function btDescribe(d)
     -- Like Android 8.1's getBondState, which returns BOND_NONE while the
     -- Bluetooth service is down.
     local o = { address = d.address, name = d.name, remote = d.remote,
-        bond = bt.enabled and (d.bond or "bonded") or "none" }
+        bond = (bt.enabled and not bt.bond_query_fails) and (d.bond or "bonded") or "none" }
     if bt.hid_ready then o.connection = d.connection or "disconnected" end
     return o
 end
@@ -301,7 +302,9 @@ local function btCall(method, arg)
     elseif method == "btDevice" then
         btTick()
         local d = btFind(arg)
-        return btReply({ device = d and btDescribe(d) or { address = arg, bond = "none" } })
+        local o = d and btDescribe(d) or { address = arg, bond = "none" }
+        o.forgotten = bt.removed[arg] or false
+        return btReply({ device = o })
     elseif method == "btScan" then
         if not bt.enabled then return btError("bt_disabled") end
         if not wifi.locationPermission then return { ok = false, error = "location_permission_needed", protocol = 1 } end
@@ -333,6 +336,7 @@ local function btCall(method, arg)
         local d = btFind(arg)
         if d.bond == "bonded" then return btError("already_paired") end
         bt.scan_at = nil
+        bt.removed[arg] = nil
         bt.pairing = { dev = d, step = 0, next_at = bt.polls + 1 }
         return btReply()
     elseif method == "btForget" then
@@ -1394,6 +1398,19 @@ test("bt: forget is not reported as done when Bluetooth turns off mid-removal", 
         assert(not (w.text or ""):find("^Forgot"), "claimed success: " .. tostring(w.text))
     end
     eq(shown[#shown].text, "Could not forget 8BitDo Micro gamepad. Try again, or use Android Bluetooth settings.", "text")
+    eq(#bt.paired, 1, "paired devices left")
+end)
+
+test("bt: forget is not reported as done when the bond query fails with Bluetooth on", function()
+    bt.forget_never = true
+    local _, items = newBtPlugin()
+    itemNamed(items, "Paired remotes").sub_item_table_func()[1].hold_callback()
+    shown[#shown].ok_callback()
+    bt.bond_query_fails = true -- getBondState returns BOND_NONE on a failed call
+    runScheduled()
+    for _, w in ipairs(shown) do
+        assert(not (w.text or ""):find("^Forgot"), "claimed success: " .. tostring(w.text))
+    end
     eq(#bt.paired, 1, "paired devices left")
 end)
 
