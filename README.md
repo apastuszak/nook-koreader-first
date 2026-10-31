@@ -16,6 +16,18 @@ No root is needed.
 
 ## Install
 
+### Quick install over USB
+
+If you have `adb` (Android platform-tools) on a Mac or Linux computer, the release's `install.sh` does every step below in one go: it checks the files against `SHA256SUMS`, installs the helper, gives it its permissions, and copies the plugin. It also gives KOReader the permissions it needs for the frontlight (brightness and warmth) and for its files, which you would otherwise allow by hand. Put all the release files in one folder, connect the Nook with USB debugging allowed, and run:
+
+```sh
+sh install.sh
+```
+
+To also install the optional [KOReader Home launcher](#optional-koreader-home-launcher) and its KOReader patch, add `--launcher`; add `--set-home` as well to make it the default Home app. The script never uninstalls anything and changes the default Home app only with `--set-home`. Afterwards, exit KOReader and open it again.
+
+### Manual install
+
 1. **Install the helper app.** Copy `nookwifi-helper-<version>.apk` to the Nook and open it with a file manager, or install it over USB:
    ```sh
    adb install nookwifi-helper-<version>.apk
@@ -30,7 +42,15 @@ No root is needed.
    ```sh
    adb shell pm grant dev.nookwifi.helper android.permission.ACCESS_COARSE_LOCATION
    ```
-4. **Exit KOReader and open it again.** On Android, KOReader has no Restart option, and it only loads plugins when it starts.
+   **Nook power off after sleeping** also needs "Modify system settings"; the plugin asks for it the first time you use it. Over USB instead:
+   ```sh
+   adb shell appops set dev.nookwifi.helper WRITE_SETTINGS allow
+   ```
+4. **Frontlight (if KOReader's brightness or warmth controls do nothing).** KOReader changes the light through Android's system settings, so it needs **Modify system settings**: in Android Settings → Apps → KOReader → Advanced → Modify system settings, turn it on. Over USB instead:
+   ```sh
+   adb shell appops set org.koreader.launcher WRITE_SETTINGS allow
+   ```
+5. **Exit KOReader and open it again.** On Android, KOReader has no Restart option, and it only loads plugins when it starts.
 
 ## Use
 

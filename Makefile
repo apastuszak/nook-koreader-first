@@ -84,7 +84,7 @@ release:
 install-release: release
 	adb install -r $(RELEASE_APK)
 
-# Everything a user needs: signed APK, plugin zip, checksums.
+# Everything a user needs: signed APKs, plugin zip, launcher patch, install script, checksums.
 dist: check release release-launcher
 	@test "$(VERSION)" = "$(PLUGIN_VERSION)" || { echo "Version mismatch: helper $(VERSION), plugin $(PLUGIN_VERSION)"; exit 1; }
 	grep -q 'version = "$(VERSION)"' $(PLUGIN)/_meta.lua || { echo "_meta.lua version is not $(VERSION)"; exit 1; }
@@ -98,8 +98,9 @@ dist: check release release-launcher
 	cp $(RELEASE_APK) $(DIST)/nookwifi-helper-$(VERSION).apk
 	cp $(LAUNCHER_APK) $(DIST)/koreader-home-$(LAUNCHER_VERSION).apk
 	cp $(HOME_PATCH) $(DIST)/
+	cp scripts/install.sh $(DIST)/
 	cd plugin && zip -qrX ../$(DIST)/nookwifi.koplugin-$(VERSION).zip nookwifi.koplugin -x '*.DS_Store'
-	cd $(DIST) && shasum -a 256 *.apk *.zip *.lua > SHA256SUMS
+	cd $(DIST) && shasum -a 256 *.apk *.zip *.lua *.sh > SHA256SUMS
 	@ls -la $(DIST)
 
 # Separate optional launcher. None of these targets changes the default Home app.

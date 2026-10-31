@@ -398,6 +398,15 @@ Plugin ↔ helper communication (decided after Stage 0 Test 2): the helper expos
 
 - **Open Nook home (helper/plugin 1.1.0, the user asked 2026-10-31), verified on device.** Helper method `openNookHome` starts the fixed component `com.nook.partner/.FacadeLauncherActivity` (`ACTION_MAIN`, `FLAG_ACTIVITY_NEW_TASK`); that facade opens `bn.ereader/com.nook.lib.ynt3.EpdHomeActivity`, the Nook home screen (in front about 0.3 s later). It does not change the default Home app. Errors: `nook_home_unavailable`. Checked over ADB first: `bn.ereader/.app.ui.SplashActivity` (the reading app's app-drawer entry) opens a profile screen (`ProfileV5Activity`) instead, so it is not used. Plugin `nookhome.lua`: Tools → "Open Nook home" and Dispatcher action `nookhome_open` (General). Offline: 5 tests. **Verified on device:** menu item, Home back to KOReader through the launcher, and the gesture.
 
+- **`scripts/install.sh`: one-step USB install for end users (the user asked, 2026-10-31).** POSIX `sh` for macOS/Linux, shipped in `dist/` by `make dist` (and in `SHA256SUMS`). It runs from the release folder and uses only the files next to it. Steps:
+  - Checks: exactly one file of each kind; `SHA256SUMS` for the files it installs; exactly one authorized device; model `BNRV1300` and API 27 (else stop, unless `--force`); KOReader installed (required for `--launcher`).
+  - Installs the helper (`adb install -r`; explains `INSTALL_FAILED_UPDATE_INCOMPATIBLE`), then grants `ACCESS_COARSE_LOCATION` (`pm grant`) and `WRITE_SETTINGS` (`appops set … allow`).
+  - Replaces `koreader/plugins/nookwifi.koplugin` from the zip (removes the old folder first, so deleted files do not linger; it holds only code).
+  - `--launcher`: installs the launcher APK and pushes `2-koreader-home.lua` to `koreader/patches/`. `--set-home` (only with `--launcher`) sets and verifies the default Home app and prints how to switch back.
+  - Never uninstalls, never force-stops KOReader (it tells the user to exit and reopen).
+  - **KOReader's permissions (the user asked, 2026-10-31):** if KOReader is installed, `appops set org.koreader.launcher WRITE_SETTINGS allow` (KOReader's frontlight brightness/warmth go through Android system settings; the user had to allow it by hand on this Nook for the light controls to work) and `pm grant` of READ/WRITE_EXTERNAL_STORAGE (KOReader asks for these on first start). Run on device; KOReader already had all three, so this shows the commands succeed, not that they fix a fresh Nook.
+  - Tested: a corrupted file, two releases in one folder and a missing launcher APK each stop it before touching the device (first run found that `one()` lost its label after `set --`; fixed). **Verified on device (2026-10-31):** `sh dist/install.sh --launcher --set-home` reinstalled 1.1.0 and launcher 0.1.6 over the same versions; grants, plugin files, patch and default Home all checked over ADB afterwards. No Windows version yet.
+
 Complete useful implementation work autonomously. Ask the user for device checks or decisions only when needed. Do not claim device behavior is verified until it has actually been tested.
 
 ## Android considerations
