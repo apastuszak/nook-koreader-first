@@ -263,7 +263,10 @@ local function btReply(extra)
     return r
 end
 local function btDescribe(d)
-    local o = { address = d.address, name = d.name, remote = d.remote, bond = d.bond or "bonded" }
+    -- Like Android 8.1's getBondState, which returns BOND_NONE while the
+    -- Bluetooth service is down.
+    local o = { address = d.address, name = d.name, remote = d.remote,
+        bond = bt.enabled and (d.bond or "bonded") or "none" }
     if bt.hid_ready then o.connection = d.connection or "disconnected" end
     return o
 end
@@ -1377,6 +1380,20 @@ test("bt: forget that Android never completes is reported, with the settings pro
     local box = shown[#shown]
     eq(box.text, "Could not forget 8BitDo Micro gamepad. Try again, or use Android Bluetooth settings.", "text")
     eq(box.ok_text, "Bluetooth settings", "prompt button")
+    eq(#bt.paired, 1, "paired devices left")
+end)
+
+test("bt: forget is not reported as done when Bluetooth turns off mid-removal", function()
+    bt.forget_never = true
+    local _, items = newBtPlugin()
+    itemNamed(items, "Paired remotes").sub_item_table_func()[1].hold_callback()
+    shown[#shown].ok_callback()
+    bt.enabled, bt.state = false, "off" -- Bluetooth goes off before Android removes the bond
+    runScheduled()
+    for _, w in ipairs(shown) do
+        assert(not (w.text or ""):find("^Forgot"), "claimed success: " .. tostring(w.text))
+    end
+    eq(shown[#shown].text, "Could not forget 8BitDo Micro gamepad. Try again, or use Android Bluetooth settings.", "text")
     eq(#bt.paired, 1, "paired devices left")
 end)
 
