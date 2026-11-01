@@ -353,12 +353,15 @@ function Uninstall-Apk([string]$Package, [string]$Name) {
     Fail "Could not uninstall $Name."
 }
 
-# Moves a file or folder on the Nook, never over an existing one, and checks it moved.
-function Move-OnNook([string]$From, [string]$To) {
-    if (Test-There $To) { Fail "$To already exists. Nothing was removed; files moved so far are in $BooksDir." }
+# Moves a file or folder on the Nook, never over an existing one; $true only if it moved.
+function Invoke-NookMove([string]$From, [string]$To) {
+    if (Test-There $To) { return $false }
     $parent = $To.Substring(0, $To.LastIndexOf('/'))
     Invoke-Adb shell "mkdir -p $(Quote $parent) && mv $(Quote $From) $(Quote $To)" | Out-Null
-    if (-not (Test-There $To) -or (Test-There $From)) {
+    return (Test-There $To) -and -not (Test-There $From)
+}
+function Move-OnNook([string]$From, [string]$To) {
+    if (-not (Invoke-NookMove $From $To)) {
         Fail "Could not move $From to $To. Nothing was removed; files moved so far are in $BooksDir."
     }
 }
@@ -397,9 +400,17 @@ if ($books.Count -gt 0) {
             $dst = "$BooksDir/$(Remove-Extension $b) ($n)$($b.Substring((Remove-Extension $b).Length))"
         }
         Move-OnNook $src $dst
-        # The book's highlights, notes and reading position (Title.epub -> Title.sdr).
+        # The book's highlights, notes and reading position (Title.epub -> Title.sdr). If
+        # they cannot follow, move the book back: a retry then finds the pair together and
+        # moves them to matching names (the book may have been renamed " (n)").
         $srcSdr = "$(Remove-Extension $src).sdr"
-        if (Test-There $srcSdr) { Move-OnNook $srcSdr "$(Remove-Extension $dst).sdr" }
+        $dstSdr = "$(Remove-Extension $dst).sdr"
+        if ((Test-There $srcSdr) -and -not (Invoke-NookMove $srcSdr $dstSdr)) {
+            if (-not (Invoke-NookMove $dst $src)) {
+                Fail "Could not move $srcSdr to $dstSdr, nor move $dst back. Nothing was removed; the book is at $dst and its highlights at $srcSdr."
+            }
+            Fail "Could not move $srcSdr to $dstSdr; the book was moved back. Nothing was removed; files moved so far are in $BooksDir."
+        }
         Say "Moved $b."
     }
 }

@@ -308,11 +308,14 @@ uninstall_apk() {
 # Quotes $1 for the Nook's shell.
 q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 there() { [ -n "$(shell "[ -e $(q "$1") ] && echo yes")" ]; }
-# Moves a file or folder on the Nook, never over an existing one, and checks it moved.
-move() {
-    ! there "$2" || die "$2 already exists. Nothing was removed; files moved so far are in $BOOKS_DIR."
+# Moves a file or folder on the Nook, never over an existing one; fails unless it moved.
+try_move() {
+    ! there "$2" || return 1
     shell "mkdir -p $(q "${2%/*}") && mv $(q "$1") $(q "$2")"
-    there "$2" && ! there "$1" || die "Could not move $1 to $2. Nothing was removed; files moved so far are in $BOOKS_DIR."
+    there "$2" && ! there "$1"
+}
+move() {
+    try_move "$1" "$2" || die "Could not move $1 to $2. Nothing was removed; files moved so far are in $BOOKS_DIR."
 }
 
 # Switch the default Home app first: Home never points at a removed app, and once
@@ -348,8 +351,13 @@ if [ -n "$books" ]; then
             dst="$BOOKS_DIR/$(stem "$b") ($n)$ext"
         done
         move "$src" "$dst"
-        # The book's highlights, notes and reading position (Title.epub -> Title.sdr).
-        if there "$(stem "$src").sdr"; then move "$(stem "$src").sdr" "$(stem "$dst").sdr"; fi
+        # The book's highlights, notes and reading position (Title.epub -> Title.sdr). If
+        # they cannot follow, move the book back: a retry then finds the pair together and
+        # moves them to matching names (the book may have been renamed " (n)").
+        if there "$(stem "$src").sdr" && ! try_move "$(stem "$src").sdr" "$(stem "$dst").sdr"; then
+            try_move "$dst" "$src" || die "Could not move $(stem "$src").sdr to $(stem "$dst").sdr, nor move $dst back. Nothing was removed; the book is at $dst and its highlights at $(stem "$src").sdr."
+            die "Could not move $(stem "$src").sdr to $(stem "$dst").sdr; the book was moved back. Nothing was removed; files moved so far are in $BOOKS_DIR."
+        fi
         say "Moved $b."
     done || exit 1
 fi
