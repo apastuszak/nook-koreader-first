@@ -180,19 +180,45 @@ if (-not $helper -and -not $pluginThere -and -not $launcher -and -not $homePatch
     exit 0
 }
 
-# The user's own files in the koreader folder (paths relative to it): every file except
-# KOReader's own folders, its settings and logs at the top, and the .sdr folders that hold
-# each book's highlights (moved with their book). Anything else is kept, whatever its
-# type. Returns $null unless the listing completed: the Nook's shell must report find's
-# success, or nothing could be told apart from an empty folder.
-function Get-Books {
-    $out = Invoke-Adb shell "cd $KoreaderDir && find . -type f; echo END:`$?"
+# KOReader's own folders inside the koreader folder (datastorage.lua, plus the Android
+# build's help, scripts and fonts): deleted with it, never moved. Screenshots are moved.
+$KoreaderOwn = 'cache|clipboard|data|docsettings|fonts|hashdocsettings|help|history|ota|patches|plugins|scripts|settings|styletweaks'
+# Lists paths in the koreader folder (relative to it) with find's tests $Tests, leaving out
+# KOReader's own folders and anything inside a .sdr folder. Returns $null unless the
+# listing completed: the Nook's shell must report find's success, or nothing could be told
+# apart from an empty folder.
+function Get-KoreaderPaths([string]$Tests) {
+    $out = Invoke-Adb shell "cd $KoreaderDir && find . $Tests; echo END:`$?"
     if ($script:AdbExit -ne 0) { return $null }
     $listed = @($out -split "`n" | ForEach-Object { $_.TrimEnd() })
     if ($listed.Count -eq 0 -or $listed[-1] -ne 'END:0') { return $null }
     return ,@($listed | Select-Object -SkipLast 1 | ForEach-Object { $_ -replace '^\./', '' } | Where-Object {
-        $_ -and $_ -notmatch '^(cache|clipboard|data|docsettings|fonts|hashdocsettings|help|ota|patches|plugins|scripts|settings|styletweaks)/|\.sdr/|^[^/]*\.(lua|lua\.old|log)$'
+        $_ -and $_ -notmatch "^($KoreaderOwn)/|\.sdr/"
     })
+}
+# The user's own files: every file except those in KOReader's own folders, its settings
+# and logs at the top, and the .sdr folders (moved with their book, or on their own).
+# Anything else is kept, whatever its type.
+function Get-Books {
+    $files = Get-KoreaderPaths '-type f'
+    if ($null -eq $files) { return $null }
+    return ,@($files | Where-Object { $_ -notmatch '^[^/]*\.(lua|lua\.old|log)$' })
+}
+# The path without its file name's extension ("Books/Title.epub" -> "Books/Title"; a
+# dot in a folder name, or a name with no extension, is left alone).
+function Remove-Extension([string]$Path) {
+    $dot = $Path.LastIndexOf('.')
+    if ($dot -gt $Path.LastIndexOf('/') + 1) { return $Path.Substring(0, $dot) }
+    return $Path
+}
+# Highlights folders (Title.sdr) whose book is not among $BookPaths: from books stored
+# elsewhere, or left behind by an earlier run that stopped after moving the book. They
+# are moved on their own, so a retry never deletes highlights.
+function Get-OrphanSdrs([string[]]$BookPaths) {
+    $sdrs = Get-KoreaderPaths "-type d -name '*.sdr'"
+    if ($null -eq $sdrs) { return $null }
+    $withBook = @($BookPaths | ForEach-Object { "$(Remove-Extension $_).sdr" })
+    return ,@($sdrs | Where-Object { $withBook -notcontains $_ })
 }
 
 Step 'Choosing what to remove'
@@ -203,6 +229,7 @@ $removeSetup = $false
 $removeFonts = $false
 $newHome = $null
 $books = @()
+$orphans = @()
 if ($koreader -or $koreaderDirThere) {
     Say ''
     Say "KOReader: the app and its $KoreaderDir folder, with KOReader's settings, reading"
@@ -218,6 +245,8 @@ if ($koreader -or $koreaderDirThere) {
         if ($koreaderDirThere) {
             $books = Get-Books
             if ($null -eq $books) { Fail "Could not list the files in $KoreaderDir. Nothing was changed." }
+            $orphans = Get-OrphanSdrs $books
+            if ($null -eq $orphans) { Fail "Could not list the files in $KoreaderDir. Nothing was changed." }
         }
     }
 }
@@ -303,6 +332,10 @@ if ($removeKoreader) {
         Say "- Move $($books.Count) file(s) from $KoreaderDir to ${BooksDir}:"
         foreach ($b in $books) { Say "    $b" }
     }
+    if ($orphans.Count -gt 0) {
+        Say "- Move $($orphans.Count) highlights folder(s) whose book is not there to ${BooksDir}:"
+        foreach ($d in $orphans) { Say "    $d" }
+    }
     if ($koreader) { Say '- Uninstall KOReader' }
     if ($zenfmApp) { Say '- Uninstall the ZenFM companion app' }
     if ($koreaderDirThere) { Say "- Delete $KoreaderDir (KOReader's settings, statistics, dictionaries, fonts and plugins)" }
@@ -320,13 +353,6 @@ function Uninstall-Apk([string]$Package, [string]$Name) {
     Fail "Could not uninstall $Name."
 }
 
-# The path without its file name's extension ("Books/Title.epub" -> "Books/Title"; a
-# dot in a folder name, or a name with no extension, is left alone).
-function Remove-Extension([string]$Path) {
-    $dot = $Path.LastIndexOf('.')
-    if ($dot -gt $Path.LastIndexOf('/') + 1) { return $Path.Substring(0, $dot) }
-    return $Path
-}
 # Moves a file or folder on the Nook, never over an existing one, and checks it moved.
 function Move-OnNook([string]$From, [string]$To) {
     if (Test-There $To) { Fail "$To already exists. Nothing was removed; files moved so far are in $BooksDir." }
@@ -335,6 +361,27 @@ function Move-OnNook([string]$From, [string]$To) {
     if (-not (Test-There $To) -or (Test-There $From)) {
         Fail "Could not move $From to $To. Nothing was removed; files moved so far are in $BooksDir."
     }
+}
+
+# Switch the default Home app first: Home never points at a removed app, and once
+# KOReader Home is no longer the default it cannot reopen KOReader when KOReader is
+# stopped below. A setting, not a removal: it can be switched back.
+if ($removeLauncher -and $newHome) {
+    Invoke-Adb shell cmd package set-home-activity $newHome | Out-Null
+    $now = Get-DefaultHome
+    if ($now -ne $newHome) { Fail "Could not make $newHome the default Home app (Home is $now). Nothing was removed." }
+    Say "Default Home app: $newHome."
+}
+
+# Stop KOReader before moving anything, so it cannot write into its folder (a book's
+# highlights or reading position when paused, a screenshot) after the files are moved.
+# Then list again, so anything it wrote since the summary is moved too.
+if ($removeKoreader -and $koreaderDirThere) {
+    if ($koreader) { Invoke-Adb shell am force-stop $KoreaderPkg | Out-Null }
+    $books = Get-Books
+    if ($null -eq $books) { Fail "Could not list the files in $KoreaderDir. Nothing was removed." }
+    $orphans = Get-OrphanSdrs $books
+    if ($null -eq $orphans) { Fail "Could not list the files in $KoreaderDir. Nothing was removed." }
 }
 
 # Files first: if any move fails, nothing has been removed yet.
@@ -356,16 +403,22 @@ if ($books.Count -gt 0) {
         Say "Moved $b."
     }
 }
+if ($orphans.Count -gt 0) {
+    Step "Moving highlights folders to $BooksDir"
+    foreach ($d in $orphans) {
+        $dst = "$BooksDir/$d"
+        $n = 1
+        while (Test-There $dst) {
+            $n++
+            $dst = "$BooksDir/$($d.Substring(0, $d.Length - 4)) ($n).sdr"
+        }
+        Move-OnNook "$KoreaderDir/$d" $dst
+        Say "Moved $d."
+    }
+}
 
 if ($removeLauncher) {
     Step 'Removing KOReader Home'
-    # Switch the default first, so Home never points at a removed app.
-    if ($newHome) {
-        Invoke-Adb shell cmd package set-home-activity $newHome | Out-Null
-        $now = Get-DefaultHome
-        if ($now -ne $newHome) { Fail "Could not make $newHome the default Home app (Home is $now). Nothing was removed." }
-        Say "Default Home app: $newHome."
-    }
     if ($launcher) { Uninstall-Apk $LauncherPkg 'KOReader Home' }
     if ($homePatchThere) {
         Invoke-AdbChecked "Could not remove $Patches/$HomePatch." shell rm -f "$Patches/$HomePatch" | Out-Null
@@ -391,7 +444,7 @@ if ($removeSetup) {
     if ($eventMapState -eq 'ours') {
         Invoke-AdbChecked "Could not remove $Settings/$EventMap." shell rm -f "$Settings/$EventMap" | Out-Null
         Say "Removed $Settings/$EventMap."
-    } elseif ($eventMapState -eq 'theirs') {
+    } elseif ($eventMapState -eq 'theirs' -and -not $removeKoreader) {
         Say "Kept your own $Settings/$EventMap."
     }
 }

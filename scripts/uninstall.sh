@@ -140,16 +140,42 @@ if ! $helper && ! $plugin && ! $launcher && ! $home_patch && [ -z "$nook_patches
     exit 0
 fi
 
-# The user's own files in the koreader folder (one path per line, relative to it): every
-# file except KOReader's own folders, its settings and logs at the top, and the .sdr
-# folders that hold each book's highlights (moved with their book). Anything else is
-# kept, whatever its type. Fails unless the listing completed: the Nook's shell must
-# report find's success, or nothing could be told apart from an empty folder.
-list_books() {
-    out=$(shell "cd $KOREADER_DIR && find . -type f; echo END:\$?") || return 1
+# KOReader's own folders inside the koreader folder (datastorage.lua, plus the Android
+# build's help, scripts and fonts): deleted with it, never moved. Screenshots are moved.
+KOREADER_OWN='cache|clipboard|data|docsettings|fonts|hashdocsettings|help|history|ota|patches|plugins|scripts|settings|styletweaks'
+# Lists paths in the koreader folder (one per line, relative to it) with find's tests $1,
+# leaving out KOReader's own folders and anything inside a .sdr folder. Fails unless the
+# listing completed: the Nook's shell must report find's success, or nothing could be
+# told apart from an empty folder.
+list_koreader() {
+    out=$(shell "cd $KOREADER_DIR && find . $1; echo END:\$?") || return 1
     [ "$(printf '%s\n' "$out" | tail -n 1)" = END:0 ] || return 1
-    printf '%s\n' "$out" | sed '$d' | sed 's|^\./||' \
-        | grep -v -E '^(cache|clipboard|data|docsettings|fonts|hashdocsettings|help|ota|patches|plugins|scripts|settings|styletweaks)/|\.sdr/|^[^/]*\.(lua|lua\.old|log)$' || true
+    printf '%s\n' "$out" | sed '$d' | sed 's|^\./||' | grep -v -E "^($KOREADER_OWN)/|\\.sdr/" || true
+}
+# The user's own files: every file except those in KOReader's own folders, its settings
+# and logs at the top, and the .sdr folders (moved with their book, or on their own).
+# Anything else is kept, whatever its type.
+list_books() {
+    files=$(list_koreader "-type f") || return 1
+    printf '%s\n' "$files" | grep -v -E '^[^/]*\.(lua|lua\.old|log)$' || true
+}
+# The path without its file name's extension ("Books/Title.epub" -> "Books/Title"; a
+# dot in a folder name, or a name with no extension, is left alone).
+stem() {
+    case "${1##*/}" in
+        ?*.*) printf '%s\n' "${1%.*}" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+# Highlights folders (Title.sdr) whose book is not among $books: from books stored
+# elsewhere, or left behind by an earlier run that stopped after moving the book. They
+# are moved on their own, so a retry never deletes highlights.
+list_orphan_sdrs() {
+    sdrs=$(list_koreader "-type d -name '*.sdr'") || return 1
+    with_book=$(printf '%s\n' "$books" | while IFS= read -r b; do
+        [ -z "$b" ] || printf '%s.sdr\n' "$(stem "$b")"
+    done)
+    printf '%s\n' "$sdrs" | grep -v -x -F -e "$with_book" -e '' || true
 }
 
 step "Choosing what to remove"
@@ -160,6 +186,7 @@ remove_setup=false
 remove_fonts=false
 new_home=
 books=
+orphans=
 if $koreader || $koreader_dir; then
     say ""
     say "KOReader: the app and its $KOREADER_DIR folder, with KOReader's settings, reading"
@@ -174,6 +201,7 @@ if $koreader || $koreader_dir; then
         if [ -n "$nook_patches" ] || [ "$event_map" != none ]; then remove_setup=true; fi
         if $koreader_dir; then
             books=$(list_books) || die "Could not list the files in $KOREADER_DIR. Nothing was changed."
+            orphans=$(list_orphan_sdrs) || die "Could not list the files in $KOREADER_DIR. Nothing was changed."
         fi
     fi
 fi
@@ -255,6 +283,10 @@ if $remove_koreader; then
         say "- Move $(printf '%s\n' "$books" | wc -l | tr -d ' ') file(s) from $KOREADER_DIR to $BOOKS_DIR:"
         printf '%s\n' "$books" | sed 's/^/    /'
     fi
+    if [ -n "$orphans" ]; then
+        say "- Move $(printf '%s\n' "$orphans" | wc -l | tr -d ' ') highlights folder(s) whose book is not there to $BOOKS_DIR:"
+        printf '%s\n' "$orphans" | sed 's/^/    /'
+    fi
     if $koreader; then say "- Uninstall KOReader"; fi
     if $zenfm_app; then say "- Uninstall the ZenFM companion app"; fi
     if $koreader_dir; then say "- Delete $KOREADER_DIR (KOReader's settings, statistics, dictionaries, fonts and plugins)"; fi
@@ -283,14 +315,24 @@ move() {
     there "$2" && ! there "$1" || die "Could not move $1 to $2. Nothing was removed; files moved so far are in $BOOKS_DIR."
 }
 
-# The path without its file name's extension ("Books/Title.epub" -> "Books/Title"; a
-# dot in a folder name, or a name with no extension, is left alone).
-stem() {
-    case "${1##*/}" in
-        ?*.*) printf '%s\n' "${1%.*}" ;;
-        *) printf '%s\n' "$1" ;;
-    esac
-}
+# Switch the default Home app first: Home never points at a removed app, and once
+# KOReader Home is no longer the default it cannot reopen KOReader when KOReader is
+# stopped below. A setting, not a removal: it can be switched back.
+if $remove_launcher && [ -n "$new_home" ]; then
+    adb shell cmd package set-home-activity "$new_home" >/dev/null
+    now=$(default_home)
+    [ "$now" = "$new_home" ] || die "Could not make $new_home the default Home app (Home is $now). Nothing was removed."
+    say "Default Home app: $new_home."
+fi
+
+# Stop KOReader before moving anything, so it cannot write into its folder (a book's
+# highlights or reading position when paused, a screenshot) after the files are moved.
+# Then list again, so anything it wrote since the summary is moved too.
+if $remove_koreader && $koreader_dir; then
+    if $koreader; then adb shell am force-stop "$KOREADER_PKG"; fi
+    books=$(list_books) || die "Could not list the files in $KOREADER_DIR. Nothing was removed."
+    orphans=$(list_orphan_sdrs) || die "Could not list the files in $KOREADER_DIR. Nothing was removed."
+fi
 
 # Files first: if any move fails, nothing has been removed yet.
 if [ -n "$books" ]; then
@@ -311,16 +353,22 @@ if [ -n "$books" ]; then
         say "Moved $b."
     done || exit 1
 fi
+if [ -n "$orphans" ]; then
+    step "Moving highlights folders to $BOOKS_DIR"
+    printf '%s\n' "$orphans" | while IFS= read -r d; do
+        dst=$BOOKS_DIR/$d
+        n=1
+        while there "$dst"; do
+            n=$((n + 1))
+            dst="$BOOKS_DIR/${d%.sdr} ($n).sdr"
+        done
+        move "$KOREADER_DIR/$d" "$dst"
+        say "Moved $d."
+    done || exit 1
+fi
 
 if $remove_launcher; then
     step "Removing KOReader Home"
-    # Switch the default first, so Home never points at a removed app.
-    if [ -n "$new_home" ]; then
-        adb shell cmd package set-home-activity "$new_home" >/dev/null
-        now=$(default_home)
-        [ "$now" = "$new_home" ] || die "Could not make $new_home the default Home app (Home is $now). Nothing was removed."
-        say "Default Home app: $new_home."
-    fi
     if $launcher; then uninstall_apk "$LAUNCHER_PKG" "KOReader Home"; fi
     if $home_patch; then
         adb shell rm -f "$PATCHES/$HOME_PATCH"
@@ -346,7 +394,7 @@ if $remove_setup; then
     if [ "$event_map" = ours ]; then
         adb shell rm -f "$SETTINGS/$EVENT_MAP"
         say "Removed $SETTINGS/$EVENT_MAP."
-    elif [ "$event_map" = theirs ]; then
+    elif [ "$event_map" = theirs ] && ! $remove_koreader; then
         say "Kept your own $SETTINGS/$EVENT_MAP."
     fi
 fi
