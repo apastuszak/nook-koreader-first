@@ -28,6 +28,8 @@ APKSIGNER = $(ANDROID_HOME)/build-tools/$(shell ls $(ANDROID_HOME)/build-tools |
 DIST := dist
 # Reading fonts shipped in dist/fonts.zip (folders under third_party/fonts).
 FONT_FAMILIES := AtkinsonHyperlegibleNext Lexend Literata Bitter
+# The user guide: docs/user-guide.md with its screenshots, also built as an EPUB to read on the Nook.
+GUIDE_EPUB := build/KOReader-first-Nook-Guide.epub
 # SHA-256 of the release signing certificate (~/.android/nookwifi-release.jks).
 # Every release must be signed with this key, or updates fail to install.
 RELEASE_CERT_SHA256 := 86f2c36fd0268087a23c5cd8b748720e97d476697fca0cc75eca0f2127ba2415
@@ -39,7 +41,7 @@ KOREADER_APK := third_party/koreader/koreader-android-arm-v2026.07.2-217-gb44e9b
 KOREADER_SHA256 := e76aa277aaf2dfca13f1e0b28d43bd68b4dafd4978586506b22aa3762863b464
 
 .PHONY: build check install install-helper install-plugin grant-location ping logs uninstall clean \
-	release install-release dist pull-koreader
+	release install-release dist pull-koreader guide install-guide
 
 build:
 	cd helper && ./gradlew --console=plain assembleDebug
@@ -103,8 +105,22 @@ release:
 install-release: release
 	adb install -r $(RELEASE_APK)
 
-# Everything a user needs: signed APKs, plugin zip, launcher patch, fonts, install scripts, checksums.
-dist: check release release-launcher
+# The user guide as an EPUB (needs pandoc). The level-1 title becomes the book title and
+# each level-2 section a chapter.
+guide: $(GUIDE_EPUB)
+$(GUIDE_EPUB): docs/user-guide.md docs/epub.css $(wildcard docs/images/*.png)
+	@mkdir -p $(dir $@)
+	cd docs && pandoc user-guide.md --from markdown --shift-heading-level-by=-1 --toc --toc-depth=2 \
+		--split-level=1 --css epub.css --metadata lang=en --metadata author="Andy Pastuszak" \
+		--resource-path=. -o $(abspath $@)
+
+# Copies the guide to the Nook's NOOK folder, where KOReader's file browser finds it.
+install-guide: $(GUIDE_EPUB)
+	adb shell mkdir -p /sdcard/NOOK
+	adb push $(GUIDE_EPUB) /sdcard/NOOK/
+
+# Everything a user needs: signed APKs, plugin zip, launcher patch, fonts, guide, install scripts, checksums.
+dist: check release release-launcher $(GUIDE_EPUB)
 	@test "$(VERSION)" = "$(PLUGIN_VERSION)" || { echo "Version mismatch: helper $(VERSION), plugin $(PLUGIN_VERSION)"; exit 1; }
 	grep -q 'version = "$(VERSION)"' $(PLUGIN)/_meta.lua || { echo "_meta.lua version is not $(VERSION)"; exit 1; }
 	$(APKSIGNER) verify $(RELEASE_APK)
@@ -126,7 +142,8 @@ dist: check release release-launcher
 	cd plugin && zip -qrX ../$(DIST)/nookwifi.koplugin-$(VERSION).zip nookwifi.koplugin -x '*.DS_Store'
 # Reading fonts (SIL OFL 1.1), each family folder with its OFL.txt and SOURCE.txt.
 	cd third_party/fonts && zip -qrX ../../$(DIST)/fonts.zip $(FONT_FAMILIES) -x '*.DS_Store'
-	cd $(DIST) && shasum -a 256 *.apk *.zip *.lua *.sh *.ps1 *.cmd > SHA256SUMS
+	cp $(GUIDE_EPUB) $(DIST)/
+	cd $(DIST) && shasum -a 256 *.apk *.zip *.lua *.sh *.ps1 *.cmd *.epub > SHA256SUMS
 	@ls -la $(DIST)
 
 # Copies the installed KOReader APK off the Nook into third_party/ (read-only on the device).

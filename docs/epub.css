@@ -1,0 +1,11 @@
+/* Styles for the user guide EPUB (docs/user-guide.md), read in KOReader on an e-ink Nook.
+   Screenshots are shown at two-thirds of the page width with a frame, so they read as
+   pictures (not as the real screen) and fit on one page together with their caption. */
+body { line-height: 1.4; }
+h1, h2, h3 { page-break-after: avoid; line-height: 1.2; }
+h1 { margin-top: 0; }
+h2 { margin-top: 1.5em; }
+p, li { text-align: left; }
+figure { margin: 1em 0; text-align: center; page-break-inside: avoid; }
+figure img { width: 66%; height: auto; border: 2px solid black; }
+figcaption { font-size: 0.85em; font-style: italic; margin-top: 0.4em; text-align: center; }

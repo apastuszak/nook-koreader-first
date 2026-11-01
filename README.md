@@ -19,7 +19,10 @@ The parts:
 - **KOReader Home** (`koreader-home-<version>.apk`, optional) and its KOReader patch (`2-koreader-home.lua`): see [Optional: KOReader Home launcher](#optional-koreader-home-launcher).
 - **Nook setup files** (`event_map.lua`, `2-nook-frontlight-widget.lua`): a KOReader key map and patch; see [Page buttons and frontlight](#page-buttons-and-frontlight).
 - **Reading fonts** (`fonts.zip`): four free font families for KOReader; see [Reading fonts](#reading-fonts).
+- **User guide** (`KOReader-first-Nook-Guide.epub`): an EPUB of [docs/user-guide.md](docs/user-guide.md) to read on the Nook.
 - **`install.sh`** (Windows: `install.cmd`): installs everything over USB and sets the permissions in one step (see [Quick install over USB](#quick-install-over-usb)). **`uninstall.sh`** (Windows: `uninstall.cmd`) removes it again (see [Remove](#remove)).
+
+**New to it? Read the [user guide](docs/user-guide.md)**: how to use each feature on the Nook, with screenshots. It is also included as an EPUB (`KOReader-first-Nook-Guide.epub`) to read on the Nook itself.
 
 The helper and plugin keep the names they started with ("Nook Wi-Fi"), because renaming them would break updates of existing installs.
 
@@ -380,7 +383,8 @@ On macOS with Homebrew you need JDK 21, the Android command-line tools (SDK plat
 ```sh
 make check     # Android lint, luacheck, offline plugin tests
 make install   # debug build of the helper + plugin, onto a USB-connected Nook
-make dist      # signed release APK, plugin zip, and SHA256SUMS in dist/
+make guide     # the user guide as an EPUB in build/ (needs pandoc)
+make dist      # signed release APKs, plugin zip, fonts, guide, scripts, and SHA256SUMS in dist/
 ```
 
 `make dist` needs `helper/keystore.properties`, which points at the release signing key. Neither the key nor that file is committed to the repository. It packs the fonts in `third_party/fonts/` into `fonts.zip` as they are; rebuilding the Lexend italics or the Bitter weights from upstream needs [fontTools](https://github.com/fonttools/fonttools) (`pip install fonttools`) and `scripts/make-lexend-italics.py` or `scripts/make-bitter-static.py` (each script's header says how to run it).
