@@ -18,6 +18,9 @@ DEVICE_PLUGINS := /sdcard/koreader/plugins
 # KOReader patch that returns to Home when KOReader exits (part of the launcher).
 HOME_PATCH := launcher/patch/2-koreader-home.lua
 DEVICE_PATCHES := /sdcard/koreader/patches
+# Nook page-button and frontlight setup for KOReader: a user patch and the custom key map.
+NOOK_PATCHES := koreader-config/patches/2-nook-frontlight-widget.lua
+NOOK_EVENT_MAP := koreader-config/settings/event_map.lua
 # Helper and plugin share one version number; dist checks they agree.
 VERSION := $(shell sed -n 's/.*versionName = "\(.*\)"/\1/p' helper/app/build.gradle.kts)
 PLUGIN_VERSION := $(shell sed -n 's/^local PLUGIN_VERSION = "\(.*\)"/\1/p' $(PLUGIN)/main.lua)
@@ -26,9 +29,15 @@ DIST := dist
 # SHA-256 of the release signing certificate (~/.android/nookwifi-release.jks).
 # Every release must be signed with this key, or updates fail to install.
 RELEASE_CERT_SHA256 := 86f2c36fd0268087a23c5cd8b748720e97d476697fca0cc75eca0f2127ba2415
+# The KOReader build the release offers to install (the one everything here is tested with):
+# copied off the Nook with `make pull-koreader`, kept out of git, pinned by its SHA-256.
+# Source: https://github.com/koreader/koreader/tree/b44e9b7 (see third_party/koreader/README.md).
+KOREADER_PKG := org.koreader.launcher
+KOREADER_APK := third_party/koreader/koreader-android-arm-v2026.07.2-217-gb44e9b7.apk
+KOREADER_SHA256 := e76aa277aaf2dfca13f1e0b28d43bd68b4dafd4978586506b22aa3762863b464
 
 .PHONY: build check install install-helper install-plugin grant-location ping logs uninstall clean \
-	release install-release dist
+	release install-release dist pull-koreader
 
 build:
 	cd helper && ./gradlew --console=plain assembleDebug
@@ -36,7 +45,7 @@ build:
 # Lint plus offline tests; nothing here touches the device.
 check: check-launcher
 	cd helper && ./gradlew --console=plain lint testDebugUnitTest
-	$(LUACHECK) --no-color $(PLUGIN) plugin/tests
+	$(LUACHECK) --no-color $(PLUGIN) plugin/tests koreader-config
 	luajit plugin/tests/run.lua
 	luajit plugin/tests/jni.lua
 
@@ -94,14 +103,26 @@ dist: check release release-launcher
 	$(APKSIGNER) verify $(LAUNCHER_APK)
 	@$(APKSIGNER) verify --print-certs $(LAUNCHER_APK) 2>/dev/null | grep -q 'certificate SHA-256 digest: $(RELEASE_CERT_SHA256)' \
 		|| { echo "Launcher APK is not signed with the release key"; exit 1; }
+	@test -f $(KOREADER_APK) || { echo "$(KOREADER_APK) is missing: run make pull-koreader with that KOReader on the Nook"; exit 1; }
+	@echo "$(KOREADER_SHA256)  $(KOREADER_APK)" | shasum -a 256 -c - >/dev/null \
+		|| { echo "$(KOREADER_APK) does not match KOREADER_SHA256"; exit 1; }
 	rm -rf $(DIST) && mkdir -p $(DIST)
 	cp $(RELEASE_APK) $(DIST)/nookwifi-helper-$(VERSION).apk
 	cp $(LAUNCHER_APK) $(DIST)/koreader-home-$(LAUNCHER_VERSION).apk
 	cp $(HOME_PATCH) $(DIST)/
 	cp scripts/install.sh scripts/install.ps1 scripts/install.cmd $(DIST)/
+	cp $(KOREADER_APK) $(DIST)/
+	cp $(NOOK_PATCHES) $(NOOK_EVENT_MAP) $(DIST)/
 	cd plugin && zip -qrX ../$(DIST)/nookwifi.koplugin-$(VERSION).zip nookwifi.koplugin -x '*.DS_Store'
 	cd $(DIST) && shasum -a 256 *.apk *.zip *.lua *.sh *.ps1 *.cmd > SHA256SUMS
 	@ls -la $(DIST)
+
+# Copies the installed KOReader APK off the Nook into third_party/ (read-only on the device).
+# If you updated KOReader, update KOREADER_APK and KOREADER_SHA256 to match.
+pull-koreader:
+	mkdir -p $(dir $(KOREADER_APK))
+	adb pull "$$(adb shell pm path $(KOREADER_PKG) | tr -d '\r' | sed 's/^package://')" $(KOREADER_APK)
+	shasum -a 256 $(KOREADER_APK)
 
 # Separate optional launcher. None of these targets changes the default Home app.
 .PHONY: build-launcher check-launcher release-launcher install-launcher install-launcher-patch launcher-recovery \

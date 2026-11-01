@@ -1,5 +1,7 @@
 # Build output
 build/
+# Third-party binaries: copied off the device, too large for git (see the Makefile)
+/third_party/koreader/*.apk
 .gradle/
 .kotlin/
 /dist/

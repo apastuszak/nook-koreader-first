@@ -8,6 +8,7 @@ What you get:
 - **Bluetooth page-turner remotes**: Bluetooth on/off, pairing, and keeping Bluetooth on only while you read.
 - **Nook power off after sleeping**: let the Nook switch itself off after sleeping for a while.
 - **Open Nook home**: jump to the Nook's own home screen when you do need it (the B&N store, the Nook's settings), and press Home to come back.
+- **Page buttons and frontlight**: the Nook's four page buttons turn pages in KOReader, and KOReader's own brightness and warmth sliders replace Android's light dialog.
 - **KOReader as the Home app** (optional): the Home button opens KOReader, and KOReader's Exit becomes **Restart KOReader**.
 
 The parts:
@@ -15,6 +16,7 @@ The parts:
 - **Nook Wi-Fi Helper** (`nookwifi-helper-<version>.apk`): a small Android app that holds the Wi-Fi, Bluetooth and system-settings permissions KOReader does not have.
 - **Nook Wi-Fi plugin** (`nookwifi.koplugin-<version>.zip`): the KOReader plugin you actually use: the Wi-Fi, Bluetooth, power-off and Open Nook home menus come from it.
 - **KOReader Home** (`koreader-home-<version>.apk`, optional) and its KOReader patch (`2-koreader-home.lua`): see [Optional: KOReader Home launcher](#optional-koreader-home-launcher).
+- **Nook setup files** (`event_map.lua`, `2-nook-frontlight-widget.lua`): a KOReader key map and patch; see [Page buttons and frontlight](#page-buttons-and-frontlight).
 - **`install.sh`**: installs everything over USB and sets the permissions in one step (see [Quick install over USB](#quick-install-over-usb)).
 
 The helper and plugin keep the names they started with ("Nook Wi-Fi"), because renaming them would break updates of existing installs.
@@ -22,19 +24,70 @@ The helper and plugin keep the names they started with ("Nook Wi-Fi"), because r
 ## Requirements
 
 - Nook GlowLight 4 Plus (Android 8.1). It has only been tested on firmware 8.1.7.120.
-- KOReader for Android, installed as `org.koreader.launcher`. It has been tested with the nightly build from 3 October 2026.
+- KOReader for Android, installed as `org.koreader.launcher`. It has been tested with the nightly build from 3 October 2026 (`v2026.07.2-217-gb44e9b7`). KOReader no longer offers that nightly for download, so each release includes it (`koreader-android-arm-v2026.07.2-217-gb44e9b7.apk`), and the install script can install it for you.
 - **For frontlight brightness and warmth, use a KOReader nightly build** for Android. With the stable release, KOReader's brightness and warmth controls do not work on the Nook. Nightly builds are on [KOReader's nightly download page](https://build.koreader.rocks/download/nightly/).
 
 ## Install
 
+### Get adb
+
+Installing over USB uses **adb**, from Google's Android platform-tools. Pick your system:
+
+- **Mac**, with [Homebrew](https://brew.sh):
+  ```sh
+  brew install --cask android-platform-tools
+  ```
+- **Windows**: nothing to do in advance. If `install.cmd` does not find adb, it offers to download Google's platform-tools into its own folder. To set it up yourself instead, download **SDK Platform-Tools for Windows** from [Google's platform-tools page](https://developer.android.com/tools/releases/platform-tools) and unzip it next to `install.cmd`, so there is a `platform-tools` folder beside it.
+- **Linux**, from your distribution:
+  ```sh
+  sudo apt install adb              # Debian, Ubuntu
+  sudo dnf install android-tools    # Fedora
+  sudo pacman -S android-tools      # Arch
+  ```
+  If `adb devices` later shows the Nook as `no permissions`, your system needs udev rules for Android devices: on Debian and Ubuntu, `sudo apt install android-sdk-platform-tools-common`, then unplug and reconnect the Nook.
+- **Any system**: [Google's platform-tools page](https://developer.android.com/tools/releases/platform-tools) has downloads for Mac, Windows and Linux. Unzip it and run `adb` from the `platform-tools` folder, or add that folder to your PATH.
+
+### Turn on USB debugging on the Nook
+
+Barnes & Noble hides Android's developer options behind a password-protected screen. On firmware 8.1.7:
+
+1. Tap the **top-right corner** of the screen, then **See All Settings**.
+2. Go to **page 2** (the arrow at the lower right), then **About**.
+3. Tap the **NOOK logo** five or more times, quickly.
+4. When it asks for a password, enter **`NOOK-BNRV1300`** (`NOOK-` followed by the GlowLight 4 Plus's model number). If that is refused, try `NOOK-BNRV1100` (the GlowLight 4's).
+5. Open **Android Development Settings** and turn on **USB debugging**.
+6. Connect the Nook to your computer. When the Nook asks **Allow USB debugging?**, allow it (tick "Always allow from this computer" to skip the question next time).
+
+Other Nook owners report the same password ([MobileRead](https://www.mobileread.com/forums/showthread.php?p=4410111)), and the Nook's own settings app does check for a password starting with `NOOK-`. Older firmware asks for no password.
+
+**Check that adb sees the Nook.** With USB debugging turned on, connect the Nook and run `adb devices` (on Windows, `platform-tools\adb devices` if you unzipped it there). The first time, the Nook asks whether to allow this computer: allow it. The Nook should then be listed as `device`. If it shows `unauthorized`, unlock the Nook and accept the prompt; if it is not listed at all, try another USB cable or port (some cables only charge).
+
 ### Quick install over USB
 
-The release's install script does every step below in one go: it checks the files against `SHA256SUMS`, installs the helper, gives it its permissions, and copies the plugin. It also gives KOReader the permissions it needs for the frontlight (brightness and warmth) and for its files, which you would otherwise allow by hand. Put all the release files in one folder and connect the Nook with USB debugging allowed. Then:
+The release's install script does every step below for you, and asks about the optional parts. Put all the release files in one folder and connect the Nook with [USB debugging turned on](#turn-on-usb-debugging-on-the-nook). Then:
 
-- **Mac or Linux** (needs `adb` from Android platform-tools): `sh install.sh`
+- **Mac or Linux** (needs [adb](#get-adb)): `sh install.sh`
 - **Windows**: double-click `install.cmd`, or run `install.cmd` in a Command Prompt in that folder. If `adb` is not installed, it offers to download Google's platform-tools for you. Windows may also need a USB driver before it can see the Nook over ADB. The Windows script has not yet been tried on a Windows PC.
 
-To also install the optional [KOReader Home launcher](#optional-koreader-home-launcher) and its KOReader patch, add `--launcher` (for example `install.cmd --launcher`); add `--set-home` as well to make it the default Home app. The script never uninstalls anything and changes the default Home app only with `--set-home`. Afterwards, exit KOReader and open it again.
+It always installs the helper and the plugin, gives them their permissions, and gives KOReader the permissions it needs for the frontlight (brightness and warmth) and for its files. Then it asks, one question at a time (press Enter for the answer in capitals, as in `[Y/n]`):
+
+| Question | Asked when | Default |
+|---|---|---|
+| Install KOReader? (the [exact build](#requirements) this project is tested with) | KOReader is not installed | Yes |
+| Set up the [page buttons and frontlight](#page-buttons-and-frontlight)? | always | Yes |
+| Install [KOReader Home](#optional-koreader-home-launcher)? | KOReader is, or will be, installed | No |
+| Make KOReader Home the default Home app now? | you said yes to KOReader Home | No |
+| Install [App Store](https://github.com/omer-faruq/appstore.koplugin)? (browse and install community KOReader plugins and patches) | it is not installed | No |
+| Install [ZenFM](https://github.com/xZenLabs/zen-fm)? (manage the Nook's files from your computer's web browser) | it is not installed | No |
+
+It then shows a summary and asks **Go ahead?** before changing anything; answer `n` to stop with nothing changed. Run without a terminal (for example from another program), it takes the defaults and never changes the default Home app.
+
+Good to know:
+
+- It never uninstalls anything, and never replaces a KOReader you already have.
+- It never overwrites a key map (`koreader/settings/event_map.lua`) you already have, unless it is the same.
+- **App Store and ZenFM** are separate projects with their own licenses (GPL-3.0 and AGPL-3.0) and support. The script downloads the newest stable release of each from its own GitHub page (for ZenFM, its KOReader plugin and its small companion app). If one is already installed, the script leaves it alone: both can update themselves. Neither publishes checksums, so the downloads are trusted because they come over HTTPS from the projects' own release pages.
+- Afterwards, exit KOReader and open it again.
 
 ### Manual install
 
@@ -60,7 +113,13 @@ To also install the optional [KOReader Home launcher](#optional-koreader-home-la
    ```sh
    adb shell appops set org.koreader.launcher WRITE_SETTINGS allow
    ```
-5. **Exit KOReader and open it again.** On Android, KOReader has no Restart option, and it only loads plugins when it starts.
+5. **Page buttons and frontlight (optional, recommended).** Copy `event_map.lua` to `koreader/settings/` (if you already have an `event_map.lua` there, add its four lines to yours instead), and `2-nook-frontlight-widget.lua` to `koreader/patches/`. Over USB:
+   ```sh
+   adb shell mkdir -p /sdcard/koreader/patches /sdcard/koreader/settings
+   adb push 2-nook-frontlight-widget.lua /sdcard/koreader/patches/
+   adb push event_map.lua /sdcard/koreader/settings/
+   ```
+6. **Exit KOReader and open it again.** On Android, KOReader has no Restart option, and it only loads plugins and patches when it starts.
 
 ## Use
 
@@ -102,6 +161,15 @@ After Bluetooth turns on, a remote usually reconnects only when you **press one 
 The first time you choose a value, the plugin asks you to allow **Nook Wi-Fi Helper** to modify system settings and opens Android's screen for it: turn the switch on, go back to KOReader, and choose again.
 
 For the screen timeout (how long until the Nook sleeps), use KOReader's own **Settings → Screen → Screen timeout**.
+
+### Page buttons and frontlight
+
+Two small KOReader files; the install script offers to set them up. KOReader reads them when it starts.
+
+- **`event_map.lua`** (in `koreader/settings/`): KOReader's custom key map. It makes the Nook's four **page buttons** turn pages: the upper buttons on both sides go forward, the lower ones back. Bluetooth page turners need no key map.
+- **`2-nook-frontlight-widget.lua`** (a patch in `koreader/patches/`): KOReader's own frontlight sliders (brightness and warmth, as on Kindle and Kobo) instead of Android's light dialog. It needs a KOReader nightly build and the "Modify system settings" permission for KOReader (see [Requirements](#requirements); the install script grants it).
+
+To remove them, delete `event_map.lua` from `koreader/settings/` and the patch from `koreader/patches/`, then restart KOReader.
 
 ### Open Nook home
 
@@ -253,3 +321,5 @@ make dist      # signed release APK, plugin zip, and SHA256SUMS in dist/
 Copyright © 2026 Andy Pastuszak.
 
 Nook Wi-Fi (the helper app and the KOReader plugin) is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, version 3 or (at your option) any later version. That is the same license KOReader uses. It is distributed WITHOUT ANY WARRANTY; see [LICENSE](LICENSE) for the full text.
+
+**KOReader** (`koreader-android-arm-<version>.apk` in the releases) is a separate program by the KOReader developers, also under the GNU AGPL v3.0, included unchanged so the install script can install a tested build. Its source code for the included build is KOReader commit [`b44e9b7`](https://github.com/koreader/koreader/tree/b44e9b7); see [third_party/koreader/README.md](third_party/koreader/README.md).
