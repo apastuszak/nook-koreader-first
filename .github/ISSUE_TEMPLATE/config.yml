@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: User guide
+    url: https://github.com/apastuszak/nook-koreader-first/blob/main/docs/user-guide.md
+    about: How to use each feature on the Nook, with a troubleshooting section.

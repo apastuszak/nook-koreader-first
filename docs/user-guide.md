@@ -238,3 +238,5 @@ Tap **Open**, turn the switch on, go back to KOReader, and choose again.
 Use **Restart KOReader**. Remember that Lexend is listed as **Lexend-aalt**, and that the list has several pages.
 
 For anything else, including installing, updating and removing KOReader-first Nook, see the README on the project's GitHub page: github.com/apastuszak/nook-koreader-first
+
+*Not affiliated with or endorsed by Barnes & Noble or the KOReader project. NOOK and GlowLight are trademarks of Barnes & Noble.*

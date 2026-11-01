@@ -2,6 +2,8 @@
 
 Make a **Barnes & Noble Nook GlowLight 4 Plus** a KOReader-first e-reader: everything you need day to day, from inside KOReader, without going back to the Nook's own software or Android settings. No root is needed.
 
+*A personal project, not affiliated with or endorsed by Barnes & Noble or the KOReader project.*
+
 What you get:
 
 - **Wi-Fi**: turn it on and off, switch between saved networks, join new ones, and have it turn off by itself when unused.
@@ -399,6 +401,8 @@ make dist      # signed release APKs, plugin zip, fonts, guide, scripts, and SHA
 ## License
 
 Copyright © 2026 Andy Pastuszak.
+
+Not affiliated with or endorsed by Barnes & Noble or the KOReader project. NOOK and GlowLight are trademarks of Barnes & Noble.
 
 Nook Wi-Fi (the helper app and the KOReader plugin) is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, version 3 or (at your option) any later version. That is the same license KOReader uses. It is distributed WITHOUT ANY WARRANTY; see [LICENSE](LICENSE) for the full text.
 
