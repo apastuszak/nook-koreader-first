@@ -5,8 +5,9 @@
 #
 # It asks what to install, then shows a summary before changing anything: KOReader (the
 # build this project is tested with, if KOReader is missing), the Nook page-button and
-# frontlight setup, the KOReader Home launcher (and whether to make it the default Home
-# app), and the App Store and ZenFM plugins (downloaded from their GitHub releases).
+# frontlight setup, two reading fonts, the KOReader Home launcher (and whether to make it
+# the default Home app), and the App Store and ZenFM plugins (downloaded from their GitHub
+# releases).
 # Without a terminal to ask on, it takes the default answers and never changes the
 # default Home app. Run it with only the Nook connected, with USB debugging turned on.
 # It never uninstalls anything.
@@ -32,6 +33,11 @@ $Settings = '/sdcard/koreader/settings'
 # sliders instead of Android's dialog (patch).
 $NookPatches = @('2-nook-frontlight-widget.lua')
 $EventMap = 'event_map.lua'
+# Reading fonts (SIL Open Font License 1.1), one folder per family with its license, copied
+# into KOReader's user font folder.
+$Fonts = '/sdcard/koreader/fonts'
+$FontsZip = 'fonts.zip'
+$FontFamilies = @('AtkinsonHyperlegibleNext', 'Lexend')
 # Third-party plugins, from their own GitHub releases (newest stable release). Neither
 # project publishes checksums; the files come over HTTPS from their release pages. An
 # installed copy is never replaced: both have their own updaters, and App Store keeps its
@@ -42,7 +48,7 @@ $ZenfmPkg = 'org.zenlabs.zenfm'
 $PlatformToolsUrl = 'https://dl.google.com/android/repository/platform-tools-latest-windows.zip'
 
 function Show-Usage {
-    Get-Content -LiteralPath $PSCommandPath -TotalCount 12 | ForEach-Object { $_ -replace '^# ?', '' }
+    Get-Content -LiteralPath $PSCommandPath -TotalCount 13 | ForEach-Object { $_ -replace '^# ?', '' }
 }
 function Say([string]$Text) { Write-Host $Text }
 function Step([string]$Text) { Write-Host ''; Write-Host "== $Text" }
@@ -101,6 +107,7 @@ $nookFiles = $true
 foreach ($f in $NookPatches + $EventMap) {
     if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { $nookFiles = $false }
 }
+$fontsFile = Test-Path -LiteralPath $FontsZip -PathType Leaf
 
 # adb: on the PATH, or in a platform-tools folder next to this script (where the download
 # below puts it).
@@ -214,12 +221,13 @@ if (Test-Installed $ZenfmPkg) {
     $dump = Invoke-Adb shell dumpsys package $ZenfmPkg
     if ($dump -match '(?m)^\s*versionName=(\S+)') { $zenfmAppHave = $Matches[1] } else { $zenfmAppHave = 'unknown' }
 }
-if ($koreader) { Say 'Nook GlowLight 4 Plus with KOReader found.' } else { Say 'Nook GlowLight 4 Plus found; KOReader is not installed.' }
+if ($koreader) { Say "Found a Nook ($model) with KOReader." } else { Say "Found a Nook ($model); KOReader is not installed." }
 
 Step 'Choosing what to install'
 Say 'Always: Nook Wi-Fi Helper and the Nook Wi-Fi KOReader plugin, with their permissions.'
 $installKoreader = $false
 $nookSetup = $false
+$fonts = $false
 $launcher = $false
 $setHome = $false
 $appstore = $false
@@ -243,6 +251,12 @@ if ($nookFiles) {
     Say "Page buttons and frontlight: the Nook's page buttons turn pages in KOReader, and"
     Say "KOReader's own brightness and warmth sliders replace Android's light dialog."
     $nookSetup = Ask 'Set them up?' 'y'
+}
+if ($fontsFile -and ($koreader -or $installKoreader)) {
+    Say ''
+    Say "Reading fonts: Atkinson Hyperlegible Next and Lexend, made for legibility, in KOReader's"
+    Say 'font menu (free fonts under the SIL Open Font License).'
+    $fonts = Ask 'Install the reading fonts?' 'y'
 }
 if ($launcherApk) {
     Say ''
@@ -296,6 +310,7 @@ if ($installKoreader) { Say "- KOReader $version" }
 Say '- Nook Wi-Fi Helper and the Nook Wi-Fi plugin, with their permissions'
 if ($koreader -or $installKoreader) { Say "- KOReader's permissions for the frontlight and its files" }
 if ($nookSetup) { Say '- Page buttons and frontlight setup' }
+if ($fonts) { Say '- Reading fonts: Atkinson Hyperlegible Next and Lexend' }
 if ($launcher) {
     if ($setHome) { Say '- KOReader Home, as the default Home app' } else { Say '- KOReader Home (not the default Home app)' }
 }
@@ -316,6 +331,7 @@ Step 'Checking the release files'
 $files = @($helperApk, $pluginZip)
 if ($installKoreader) { $files += $koreaderApk }
 if ($nookSetup) { $files += $NookPatches + $EventMap }
+if ($fonts) { $files += $FontsZip }
 if ($launcher) { $files += @($launcherApk, $Patch) }
 if ($null -ne $sums) {
     foreach ($f in $files) { Test-Sum $f }
@@ -408,6 +424,21 @@ try {
         } else {
             Invoke-AdbChecked "Could not copy $EventMap to the Nook." push $EventMap "$Settings/" | Out-Null
             Say "Key map copied to $Settings/$EventMap."
+        }
+    }
+
+    if ($fonts) {
+        Step 'Installing the reading fonts'
+        $fontsTmp = Join-Path $tmp 'fonts'
+        Expand-Archive -LiteralPath $FontsZip -DestinationPath $fontsTmp
+        Invoke-AdbChecked 'Could not create the fonts folder.' shell mkdir -p $Fonts | Out-Null
+        foreach ($f in $FontFamilies) {
+            $familyDir = Join-Path $fontsTmp $f
+            if (-not (Test-Path -LiteralPath (Join-Path $familyDir 'OFL.txt') -PathType Leaf)) { Fail "$FontsZip does not contain $f." }
+            # Replace the folder: it holds only this release's copy of the family.
+            Invoke-AdbChecked "Could not remove the old $f." shell rm -rf "$Fonts/$f" | Out-Null
+            Invoke-AdbChecked "Could not copy $f to the Nook." push $familyDir "$Fonts/" | Out-Null
+            Say "Fonts copied to $Fonts/$f."
         }
     }
 
@@ -508,13 +539,14 @@ try {
 }
 
 Step 'Done'
-Say 'Exit KOReader and open it again: it loads plugins and patches only when it starts.'
+Say 'If KOReader is open, exit it and open it again: it loads plugins and patches only when it starts.'
 Say 'Then look for Settings -> Network -> Nook Wi-Fi.'
 if ($setHome) {
     Say ''
     Say 'To make another launcher the default again, list them with'
     Say '  adb shell cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.HOME'
-    Say 'and set one, for example Olauncher:'
-    Say '  adb shell cmd package set-home-activity app.olauncher/.MainActivity'
+    Say "and set one, for example the Nook's own home screen:"
+    Say '  adb shell cmd package set-home-activity com.nook.partner/.FacadeLauncherActivity'
+    Say 'or run uninstall.cmd, which asks which Home app to use.'
 }
 exit 0

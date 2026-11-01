@@ -54,11 +54,18 @@ Barnes & Noble hides Android's developer options behind a password-protected scr
 1. Tap the **top-right corner** of the screen, then **See All Settings**.
 2. Go to **page 2** (the arrow at the lower right), then **About**.
 3. Tap the **NOOK logo** five or more times, quickly.
-4. When it asks for a password, enter **`NOOK-BNRV1300`** (`NOOK-` followed by the GlowLight 4 Plus's model number). If that is refused, try `NOOK-BNRV1100` (the GlowLight 4's).
+4. When it asks for a password, enter `NOOK-` followed by the Nook's model number:
+
+   | Nook | Password |
+   | --- | --- |
+   | GlowLight 4 Plus | **`NOOK-BNRV1300`** |
+   | GlowLight 4 | `NOOK-BNRV1100` |
+   | GlowLight 4e | `NOOK-BNRV1000` (not tested) |
+
 5. Open **Android Development Settings** and turn on **USB debugging**.
 6. Connect the Nook to your computer. When the Nook asks **Allow USB debugging?**, allow it (tick "Always allow from this computer" to skip the question next time).
 
-Other Nook owners report the same password ([MobileRead](https://www.mobileread.com/forums/showthread.php?p=4410111)), and the Nook's own settings app does check for a password starting with `NOOK-`. Older firmware asks for no password.
+The GlowLight 4 Plus and GlowLight 4 passwords have been tested on those Nooks; other owners report the same ([MobileRead](https://www.mobileread.com/forums/showthread.php?p=4410111)). Older firmware asks for no password. This project is built for the GlowLight 4 Plus and has also been tried on a GlowLight 4, where everything worked. On any Nook other than the 4 Plus, the installer warns and asks before going on.
 
 **Check that adb sees the Nook.** With USB debugging turned on, connect the Nook and run `adb devices` (on Windows, `platform-tools\adb devices` if you unzipped it there). The first time, the Nook asks whether to allow this computer: allow it. The Nook should then be listed as `device`. If it shows `unauthorized`, unlock the Nook and accept the prompt; if it is not listed at all, try another USB cable or port (some cables only charge).
 
@@ -75,6 +82,7 @@ It always installs the helper and the plugin, gives them their permissions, and 
 |---|---|---|
 | Install KOReader? (the [exact build](#requirements) this project is tested with) | KOReader is not installed | Yes |
 | Set up the [page buttons and frontlight](#page-buttons-and-frontlight)? | always | Yes |
+| Install the reading fonts? ([Atkinson Hyperlegible Next](https://github.com/googlefonts/atkinson-hyperlegible-next) and [Lexend](https://github.com/googlefonts/lexend), with italics) | KOReader is, or will be, installed | Yes |
 | Install [KOReader Home](#optional-koreader-home-launcher)? | KOReader is, or will be, installed | No |
 | Make KOReader Home the default Home app now? | you said yes to KOReader Home | No |
 | Install [App Store](https://github.com/omer-faruq/appstore.koplugin)? (browse and install community KOReader plugins and patches) | it is not installed | No |
@@ -87,6 +95,7 @@ Good to know:
 
 - It never uninstalls anything, and never replaces a KOReader you already have.
 - It never overwrites a key map (`koreader/settings/event_map.lua`) you already have, unless it is the same.
+- **Reading fonts** go into `koreader/fonts/AtkinsonHyperlegibleNext` and `koreader/fonts/Lexend`, each with its license. In KOReader, open a book and pick them under the font menu (the **Aa** tab, then **Font**); Lexend is listed as **Lexend-aalt** (the version with a single-storey "a"). Other fonts in `koreader/fonts` are not touched.
 - **App Store and ZenFM** are separate projects with their own licenses (GPL-3.0 and AGPL-3.0) and support. The script downloads the newest stable release of each from its own GitHub page (for ZenFM, its KOReader plugin and its small companion app). If one is already installed, the script leaves it alone: both can update themselves. If only one of ZenFM's two parts is on the Nook, the script offers just the missing part, from the same ZenFM release, and never replaces the part that is there. Neither publishes checksums, so the downloads are trusted because they come over HTTPS from the projects' own release pages.
 - Afterwards, exit KOReader and open it again.
 
@@ -198,6 +207,28 @@ Install the new helper APK over the old one, and replace the `nookwifi.koplugin`
 Always update the helper and the plugin together; **Helper info** shows both versions so you can check. If the two cannot work together, the plugin says to update both, or that the helper is out of date.
 
 ## Remove
+
+### Uninstall script
+
+The release folder has an uninstall script that works like the installer: connect the Nook by USB (with USB debugging on), then run `sh uninstall.sh` on a Mac or Linux, or double-click `uninstall.cmd` on Windows. It looks at what is on the Nook and asks before removing anything:
+
+| Question | Asked when | Default |
+|---|---|---|
+| Remove KOReader and its folder? (removes everything below too) | KOReader or its `koreader` folder is there | No |
+| Remove Nook Wi-Fi? (the helper app and its KOReader plugin) | either is installed, and KOReader stays | Yes |
+| Remove KOReader Home? | the launcher or its patch is installed, and KOReader stays | Yes |
+| Which Home app should take its place? (a numbered list; the Nook's own home screen first) | KOReader Home is the default Home app | 1 |
+| Remove the page-button and frontlight setup? | it is installed, and KOReader stays | No |
+| Remove the reading fonts? | they are installed, and KOReader stays | No |
+| Go ahead? (after a summary) | always | No |
+
+It switches the default Home app before removing KOReader Home, so Home never points at a removed app. It removes the key map (`koreader/settings/event_map.lua`) only if it is the one this project installed; your own is kept.
+
+**Removing KOReader** also deletes the `koreader` folder: KOReader's settings, reading statistics, dictionaries, your own key map, and its plugins (including App Store and ZenFM; the ZenFM companion app is uninstalled too). Before that, book files inside the `koreader` folder are moved to the `NOOK` folder, keeping their subfolders and each book's `.sdr` folder (highlights, notes and reading position); a name that is already taken gets " (2)". If a move fails, the script stops before removing anything. Books outside the `koreader` folder stay where they are. Highlights that KOReader keeps inside its own folder (if you changed **Book metadata location** away from the default) are deleted with it.
+
+If you keep KOReader, exit it and open it again afterwards.
+
+### By hand
 
 1. Delete the `koreader/plugins/nookwifi.koplugin` folder.
 2. Uninstall **Nook Wi-Fi Helper** in Android Settings → Apps, or over USB with `adb uninstall dev.nookwifi.helper`.
@@ -324,3 +355,5 @@ Copyright © 2026 Andy Pastuszak.
 Nook Wi-Fi (the helper app and the KOReader plugin) is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, version 3 or (at your option) any later version. That is the same license KOReader uses. It is distributed WITHOUT ANY WARRANTY; see [LICENSE](LICENSE) for the full text.
 
 **KOReader** (`koreader-android-arm-<version>.apk` in the releases) is a separate program by the KOReader developers, also under the GNU AGPL v3.0, included unchanged so the install script can install a tested build. Its source code for the included build is KOReader commit [`b44e9b7`](https://github.com/koreader/koreader/tree/b44e9b7); see [third_party/koreader/README.md](third_party/koreader/README.md).
+
+**Atkinson Hyperlegible Next** (Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors) and **Lexend** (Copyright 2018 The Lexend Project Authors, Reserved Font Name "RevReading Lexend") are included in `fonts.zip` in the releases and in [third_party/fonts/](third_party/fonts/). They are licensed under the [SIL Open Font License 1.1](https://openfontlicense.org), not the AGPL; each font's folder holds its `OFL.txt` and a `SOURCE.txt` naming the upstream commit. Atkinson Hyperlegible Next is unchanged. Lexend is the alternate-"a" version from [Octavio Pardo's fork](https://github.com/octaviopardo/lexend/tree/Lexend-a): its upright fonts are unchanged, and its italics are modified versions of the fork's slanted fonts, with only their names and style flags changed (by [scripts/make-lexend-italics.py](scripts/make-lexend-italics.py)) so that KOReader uses them as italics.

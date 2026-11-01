@@ -1,0 +1,17 @@
+Lexend (alternate "a" version, family name "Lexend-aalt"), installed by KOReader-first Nook.
+
+Source: https://github.com/octaviopardo/lexend (Octavio Pardo's fork of
+https://github.com/googlefonts/lexend), branch Lexend-a
+Commit: 26500c8b95dd3d50656fe5ead7f916155b79afbe
+Files: fonts/lexend/otf/Lexend-aalt-<Weight>.otf and Lexend-aalt-<Weight>-Slanted.otf
+License: SIL Open Font License 1.1 (OFL.txt in this folder). Reserved Font Name:
+"RevReading Lexend" (not used here).
+
+Upright fonts (Lexend-aalt-<Weight>.otf): unchanged.
+
+Italic fonts (Lexend-aalt-<Weight>Italic.otf): modified versions of the -Slanted files,
+made with scripts/make-lexend-italics.py in the KOReader-first Nook repository, so that
+KOReader uses them as the family's italics. Only metadata changed: family and style
+names, full name, PostScript name and unique ID (name and CFF tables), the italic flag
+in OS/2 fsSelection and head.macStyle. Glyphs, metrics and the italic angle (-15
+degrees) are unchanged.

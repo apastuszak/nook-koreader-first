@@ -1,0 +1,367 @@
+#!/bin/sh
+# Removes KOReader-first Nook from a Nook over USB (ADB).
+#
+#   sh uninstall.sh
+#
+# It looks at what is installed, asks what to remove, and shows a summary before
+# changing anything: Nook Wi-Fi (the helper app and its KOReader plugin), the KOReader
+# Home launcher (choosing another default Home app first, if it is the default), the
+# page-button and frontlight setup, the reading fonts, and optionally KOReader itself
+# with its koreader folder (books in that folder are moved to the NOOK folder first). Run
+# it in a terminal, with only the Nook connected and USB debugging turned on.
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+set -eu
+
+HELPER_PKG=dev.nookwifi.helper
+LAUNCHER_PKG=dev.nookkoreader.launcher
+LAUNCHER_HOME=$LAUNCHER_PKG/.HomeActivity
+NOOK_HOME=com.nook.partner/.FacadeLauncherActivity
+PLUGINS=/sdcard/koreader/plugins
+PATCHES=/sdcard/koreader/patches
+KOREADER_PKG=org.koreader.launcher
+KOREADER_DIR=/sdcard/koreader
+BOOKS_DIR=/sdcard/NOOK
+ZENFM_PKG=org.zenlabs.zenfm
+SETTINGS=/sdcard/koreader/settings
+PLUGIN=nookwifi.koplugin
+HOME_PATCH=2-koreader-home.lua
+NOOK_PATCHES="2-nook-frontlight-widget.lua"
+EVENT_MAP=event_map.lua
+FONTS=/sdcard/koreader/fonts
+FONT_FAMILIES="AtkinsonHyperlegibleNext Lexend"
+
+usage() {
+    sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
+    exit "${1:-0}"
+}
+for arg in "$@"; do
+    case "$arg" in
+        -h|--help) usage 0 ;;
+        *) echo "This script takes no options: it asks what to remove. ($arg)" >&2; usage 1 ;;
+    esac
+done
+
+say() { printf '%s\n' "$*"; }
+step() { printf '\n== %s\n' "$*"; }
+die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
+
+# Removing things needs answers: unlike install.sh, there are no safe defaults to take
+# without a terminal.
+[ -t 0 ] || die "This script asks before removing anything; run it in a terminal."
+# Asks a yes/no question; $2 is the default (y or n), taken on Enter.
+ask() {
+    if [ "$2" = y ]; then hint='[Y/n]'; else hint='[y/N]'; fi
+    while :; do
+        printf '%s %s ' "$1" "$hint"
+        # End of input (Ctrl-D) is not an answer: stop rather than take the default.
+        read -r answer || { say ""; die "No answer; stopping."; }
+        case "$answer" in
+            '') [ "$2" = y ]; return ;;
+            [Yy]*) return 0 ;;
+            [Nn]*) return 1 ;;
+            *) say "Please answer y or n." ;;
+        esac
+    done
+}
+# Asks for a number from 1 to $1 (1 on Enter) and sets $choice.
+choose() {
+    while :; do
+        printf 'Choose 1-%s [1] ' "$1"
+        read -r choice || { say ""; die "No answer; stopping."; }
+        [ -n "$choice" ] || choice=1
+        case "$choice" in
+            *[!0-9]*) ;;
+            *) [ "$choice" -ge 1 ] && [ "$choice" -le "$1" ] && return 0 ;;
+        esac
+        say "Please enter a number from 1 to $1."
+    done
+}
+
+cd "$(dirname "$0")"
+command -v adb >/dev/null 2>&1 || die "adb not found. Install Android platform-tools (see the README) and try again."
+
+step "Checking the Nook"
+# Only device records ("serial<TAB>state"): when adb starts its server it also prints
+# "* daemon not running; starting now..." lines, which some versions send to stdout.
+devices=$(adb devices 2>/dev/null | awk -F '\t' 'NF >= 2 && $1 != ""')
+[ -n "$devices" ] || die "No device found. Connect the Nook by USB and turn on USB debugging (see the README)."
+[ "$(printf '%s\n' "$devices" | wc -l | tr -d ' ')" -eq 1 ] \
+    || die "More than one device is connected. Connect only the Nook."
+case "$devices" in
+    *unauthorized*) die "The Nook has not allowed this computer yet. Unlock it, accept the USB debugging prompt, and try again." ;;
+    *offline*) die "The Nook is offline. Reconnect the cable and try again." ;;
+    *"no permissions"*) die "This computer may not open the Nook's USB connection (on Linux, add a udev rule: see the README)." ;;
+esac
+# Never lets adb read this script's input (it would swallow lists read in loops).
+shell() { adb shell "$@" </dev/null | tr -d '\r'; }
+model=$(shell getprop ro.product.model)
+[ -n "$model" ] || die "Could not read the device's model over adb. Reconnect the Nook and try again."
+installed() { shell pm list packages "$1" | grep -qx "package:$1"; }
+exists() { [ -n "$(shell "[ -e $1 ] && echo yes")" ]; }
+# The Home app Android opens now: a component, or Android's chooser if there is no default.
+default_home() {
+    shell cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME | tail -n 1
+}
+
+helper=false; installed "$HELPER_PKG" && helper=true
+plugin=false; exists "$PLUGINS/$PLUGIN" && plugin=true
+launcher=false; installed "$LAUNCHER_PKG" && launcher=true
+home_patch=false; exists "$PATCHES/$HOME_PATCH" && home_patch=true
+nook_patches=
+for f in $NOOK_PATCHES; do exists "$PATCHES/$f" && nook_patches="$nook_patches $f"; done
+# The key map is a personal settings file: only one with the same mappings as this
+# release's is ours to remove. Compared without comments and spacing.
+event_map=none
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+if adb pull "$SETTINGS/$EVENT_MAP" "$tmp/$EVENT_MAP.nook" >/dev/null 2>&1; then
+    mappings() { sed -e 's/--.*//' -e 's/[[:space:]]//g' -e '/^$/d' "$1"; }
+    if [ -e "$EVENT_MAP" ] && [ "$(mappings "$EVENT_MAP")" = "$(mappings "$tmp/$EVENT_MAP.nook")" ]; then
+        event_map=ours
+    else
+        event_map=theirs
+    fi
+fi
+# Only font folders this project installed: they carry its SOURCE.txt.
+fonts=
+for f in $FONT_FAMILIES; do
+    [ -z "$(shell "grep -q 'KOReader-first Nook' $FONTS/$f/SOURCE.txt 2>/dev/null && echo yes")" ] || fonts="$fonts $f"
+done
+home=$(default_home)
+koreader=false; installed "$KOREADER_PKG" && koreader=true
+koreader_dir=false; exists "$KOREADER_DIR" && koreader_dir=true
+zenfm_app=false; installed "$ZENFM_PKG" && zenfm_app=true
+say "Found a Nook ($model)."
+
+if ! $helper && ! $plugin && ! $launcher && ! $home_patch && [ -z "$nook_patches" ] && [ "$event_map" != ours ] \
+    && [ -z "$fonts" ] && ! $koreader && ! $koreader_dir; then
+    say "Nothing from KOReader-first Nook is installed."
+    exit 0
+fi
+
+# Book files in the koreader folder (one path per line, relative to it), leaving out
+# KOReader's own folders and the .sdr folders that hold each book's highlights.
+list_books() {
+    names=-iname\ \"*.epub\"
+    for e in pdf djvu djv fb2 mobi azw azw3 prc pdb cbz cbr cbt cb7 txt rtf doc docx odt chm xps oxps; do
+        names="$names -o -iname \"*.$e\""
+    done
+    shell "cd $KOREADER_DIR && find . -type f \\( $names \\)" \
+        | sed 's|^\./||' \
+        | grep -v -E '^(cache|clipboard|data|docsettings|fonts|hashdocsettings|help|ota|patches|plugins|screenshots|scripts|settings|styletweaks)/|\.sdr/' || true
+}
+
+step "Choosing what to remove"
+remove_koreader=false
+remove_wifi=false
+remove_launcher=false
+remove_setup=false
+remove_fonts=false
+new_home=
+books=
+if $koreader || $koreader_dir; then
+    say ""
+    say "KOReader: the app and its $KOREADER_DIR folder, with KOReader's settings, reading"
+    say "statistics, dictionaries and other plugins (App Store, ZenFM). Book files in that folder"
+    say "are moved to $BOOKS_DIR first, each with its highlights; books elsewhere stay where they are."
+    if ask "Remove KOReader and its folder?" n; then
+        remove_koreader=true
+        # Everything else from this project lives in KOReader or its folder.
+        if $helper || $plugin; then remove_wifi=true; fi
+        if $launcher || $home_patch; then remove_launcher=true; fi
+        if [ -n "$nook_patches" ] || [ "$event_map" != none ]; then remove_setup=true; fi
+        if $koreader_dir; then books=$(list_books); fi
+    fi
+fi
+if ! $remove_koreader && { $helper || $plugin; }; then
+    say ""
+    say "Nook Wi-Fi: the helper app and its KOReader plugin. KOReader's Wi-Fi items go back to"
+    say "opening Android settings, and Nook power off after sleeping goes back to never."
+    ask "Remove Nook Wi-Fi?" y && remove_wifi=true
+fi
+if $launcher || $home_patch; then
+    if ! $remove_koreader; then
+        say ""
+        say "KOReader Home: the launcher that opens KOReader when you press Home."
+        ask "Remove KOReader Home?" y && remove_launcher=true
+    fi
+    if $remove_launcher; then
+        if [ "$home" = "$LAUNCHER_HOME" ]; then
+            # Every other Home app: skip this launcher, Android's fallback (negative
+            # priority) and Settings' own fallback screen. The Nook's own home goes first.
+            homes=$(shell cmd package query-activities --brief -a android.intent.action.MAIN \
+                -c android.intent.category.HOME \
+                | awk '$1 ~ /^priority=/ { split($1, a, "="); pri = a[2] + 0; next }
+                       $1 ~ /\// { if (pri >= 0) print $1; pri = 0 }' \
+                | grep -v -e "^$LAUNCHER_PKG/" -e '^com\.android\.settings/' || true)
+            homes=$( { printf '%s\n' "$homes" | grep -x "$NOOK_HOME" || true
+                       printf '%s\n' "$homes" | grep -vx "$NOOK_HOME" || true; } | sed '/^$/d')
+            if [ -z "$homes" ]; then
+                say "KOReader Home is the default Home app, and there is no other to switch to:"
+                say "Android will ask which Home app to use the next time you press Home."
+            else
+                say "KOReader Home is the default Home app. Which Home app should take its place?"
+                n=0
+                for c in $homes; do
+                    n=$((n + 1))
+                    case "$c" in
+                        "$NOOK_HOME") label="The Nook's own home screen" ;;
+                        app.olauncher/*) label="Olauncher" ;;
+                        *) label=${c%%/*} ;;
+                    esac
+                    say "  $n. $label ($c)"
+                done
+                choose "$n"
+                new_home=$(printf '%s\n' "$homes" | sed -n "${choice}p")
+            fi
+        fi
+    fi
+fi
+if ! $remove_koreader && { [ -n "$nook_patches" ] || [ "$event_map" = ours ]; }; then
+    say ""
+    say "Page buttons and frontlight: without them the Nook's page buttons stop turning pages in"
+    say "KOReader, and Android's light dialog comes back."
+    ask "Remove the page-button and frontlight setup?" n && remove_setup=true
+fi
+if ! $remove_koreader && [ -n "$fonts" ]; then
+    say ""
+    say "Reading fonts: Atkinson Hyperlegible Next and Lexend. Books set to use them go back to"
+    say "KOReader's default font."
+    ask "Remove the reading fonts?" n && remove_fonts=true
+fi
+if ! $remove_koreader && ! $remove_wifi && ! $remove_launcher && ! $remove_setup && ! $remove_fonts; then
+    say ""
+    say "Nothing chosen; nothing was changed."
+    exit 0
+fi
+
+step "Summary"
+$remove_wifi && say "- Remove Nook Wi-Fi (helper app and plugin)"
+if $remove_launcher; then
+    if [ -n "$new_home" ]; then say "- Make $new_home the default Home app"; fi
+    say "- Remove KOReader Home (launcher app and its KOReader patch)"
+fi
+$remove_setup && say "- Remove the page-button and frontlight setup"
+$remove_fonts && say "- Remove the reading fonts"
+if [ "$event_map" = theirs ] && $remove_setup && ! $remove_koreader; then
+    say "  (your own $SETTINGS/$EVENT_MAP differs from this release's and is kept)"
+fi
+if $remove_koreader; then
+    if [ -n "$books" ]; then
+        say "- Move $(printf '%s\n' "$books" | wc -l | tr -d ' ') book file(s) from $KOREADER_DIR to $BOOKS_DIR:"
+        printf '%s\n' "$books" | sed 's/^/    /'
+    fi
+    if $koreader; then say "- Uninstall KOReader"; fi
+    if $zenfm_app; then say "- Uninstall the ZenFM companion app"; fi
+    if $koreader_dir; then say "- Delete $KOREADER_DIR (KOReader's settings, statistics, dictionaries, fonts and plugins)"; fi
+    say "Kept: books outside $KOREADER_DIR, and the Nook's own apps."
+else
+    say "Kept: KOReader, your books and KOReader's settings, and any other plugins."
+fi
+ask "Go ahead?" n || { say "Stopped; nothing was changed."; exit 0; }
+
+# adb uninstall reports a failure in its output, not always in its exit status.
+uninstall_apk() {
+    out=$(adb uninstall "$1" 2>&1) || true
+    case "$out" in
+        *Success*) say "Uninstalled $2." ;;
+        *) printf '%s\n' "$out" >&2; die "Could not uninstall $2." ;;
+    esac
+}
+
+# Quotes $1 for the Nook's shell.
+q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+there() { [ -n "$(shell "[ -e $(q "$1") ] && echo yes")" ]; }
+# Moves a file or folder on the Nook, never over an existing one, and checks it moved.
+move() {
+    ! there "$2" || die "$2 already exists. Nothing was removed; books moved so far are in $BOOKS_DIR."
+    shell "mkdir -p $(q "${2%/*}") && mv $(q "$1") $(q "$2")"
+    there "$2" && ! there "$1" || die "Could not move $1 to $2. Nothing was removed; books moved so far are in $BOOKS_DIR."
+}
+
+# Books first: if any move fails, nothing has been removed yet.
+if [ -n "$books" ]; then
+    step "Moving books to $BOOKS_DIR"
+    printf '%s\n' "$books" | while IFS= read -r b; do
+        src=$KOREADER_DIR/$b
+        dst=$BOOKS_DIR/$b
+        # Never overwrite: "Title.epub" becomes "Title (2).epub", and so on.
+        n=1
+        while there "$dst" || there "${dst%.*}.sdr"; do
+            n=$((n + 1))
+            dst="$BOOKS_DIR/${b%.*} ($n).${b##*.}"
+        done
+        move "$src" "$dst"
+        # The book's highlights, notes and reading position (Title.epub -> Title.sdr).
+        if there "${src%.*}.sdr"; then move "${src%.*}.sdr" "${dst%.*}.sdr"; fi
+        say "Moved $b."
+    done || exit 1
+fi
+
+if $remove_launcher; then
+    step "Removing KOReader Home"
+    # Switch the default first, so Home never points at a removed app.
+    if [ -n "$new_home" ]; then
+        adb shell cmd package set-home-activity "$new_home" >/dev/null
+        now=$(default_home)
+        [ "$now" = "$new_home" ] || die "Could not make $new_home the default Home app (Home is $now). Nothing was removed."
+        say "Default Home app: $new_home."
+    fi
+    if $launcher; then uninstall_apk "$LAUNCHER_PKG" "KOReader Home"; fi
+    if $home_patch; then
+        adb shell rm -f "$PATCHES/$HOME_PATCH"
+        say "Removed $PATCHES/$HOME_PATCH."
+    fi
+fi
+
+if $remove_wifi; then
+    step "Removing Nook Wi-Fi"
+    if $helper; then uninstall_apk "$HELPER_PKG" "Nook Wi-Fi Helper"; fi
+    if $plugin; then
+        adb shell rm -rf "$PLUGINS/$PLUGIN"
+        say "Removed $PLUGINS/$PLUGIN."
+    fi
+fi
+
+if $remove_setup; then
+    step "Removing the page-button and frontlight setup"
+    for f in $nook_patches; do
+        adb shell rm -f "$PATCHES/$f"
+        say "Removed $PATCHES/$f."
+    done
+    if [ "$event_map" = ours ]; then
+        adb shell rm -f "$SETTINGS/$EVENT_MAP"
+        say "Removed $SETTINGS/$EVENT_MAP."
+    elif [ "$event_map" = theirs ]; then
+        say "Kept your own $SETTINGS/$EVENT_MAP."
+    fi
+fi
+
+if $remove_fonts; then
+    step "Removing the reading fonts"
+    for f in $fonts; do
+        adb shell rm -rf "$FONTS/$f"
+        say "Removed $FONTS/$f."
+    done
+fi
+
+if $remove_koreader; then
+    step "Removing KOReader"
+    if $koreader; then uninstall_apk "$KOREADER_PKG" "KOReader"; fi
+    if $zenfm_app; then uninstall_apk "$ZENFM_PKG" "the ZenFM companion app"; fi
+    if $koreader_dir; then
+        adb shell rm -rf "$KOREADER_DIR"
+        ! there "$KOREADER_DIR" || die "Could not delete $KOREADER_DIR."
+        say "Deleted $KOREADER_DIR."
+    fi
+fi
+
+step "Done"
+if $remove_koreader; then
+    if [ -n "$books" ]; then say "Your books from $KOREADER_DIR are in $BOOKS_DIR."; fi
+    say "Networks you joined and remotes you paired stay saved in Android."
+    exit 0
+fi
+say "If KOReader is open, exit it and open it again: it loads plugins and patches only when it starts."
+say "Networks you joined and remotes you paired stay saved in Android."

@@ -1,0 +1,5 @@
+Atkinson Hyperlegible Next, installed by KOReader-first Nook.
+
+Source: https://github.com/googlefonts/atkinson-hyperlegible-next
+Commit: 7925f50f649b3813257faf2f4c0b381011f434f1 (fonts/ttf, static TTFs, unmodified)
+License: SIL Open Font License 1.1 (OFL.txt in this folder)

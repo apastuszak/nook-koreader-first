@@ -6,8 +6,9 @@
 #
 # It asks what to install, then shows a summary before changing anything: KOReader (the
 # build this project is tested with, if KOReader is missing), the Nook page-button and
-# frontlight setup, the KOReader Home launcher (and whether to make it the default Home
-# app), and the App Store and ZenFM plugins (downloaded from their GitHub releases).
+# frontlight setup, two reading fonts, the KOReader Home launcher (and whether to make it
+# the default Home app), and the App Store and ZenFM plugins (downloaded from their GitHub
+# releases).
 # Without a terminal to ask on, it takes the default answers and never changes the
 # default Home app. Run it with only the Nook connected, with USB debugging turned on.
 # It never uninstalls anything.
@@ -27,6 +28,11 @@ SETTINGS=/sdcard/koreader/settings
 # sliders instead of Android's dialog (patch).
 NOOK_PATCHES="2-nook-frontlight-widget.lua"
 EVENT_MAP=event_map.lua
+# Reading fonts (SIL Open Font License 1.1), one folder per family with its license, copied
+# into KOReader's user font folder.
+FONTS=/sdcard/koreader/fonts
+FONTS_ZIP=fonts.zip
+FONT_FAMILIES="AtkinsonHyperlegibleNext Lexend"
 # Third-party plugins, from their own GitHub releases (newest stable release). Neither
 # project publishes checksums; the files come over HTTPS from their release pages. An
 # installed copy is never replaced: both have their own updaters, and App Store keeps its
@@ -36,7 +42,7 @@ ZENFM_REPO=xZenLabs/zen-fm
 ZENFM_PKG=org.zenlabs.zenfm
 
 usage() {
-    sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 for arg in "$@"; do
@@ -96,6 +102,8 @@ koreader_apk=$(optional 'koreader-android-*.apk' 'koreader-android-<version>.apk
 [ -e "$PATCH" ] || launcher_apk=
 nook_files=true
 for f in $NOOK_PATCHES $EVENT_MAP; do [ -e "$f" ] || nook_files=false; done
+fonts_file=false
+[ -e "$FONTS_ZIP" ] && fonts_file=true
 
 command -v adb >/dev/null 2>&1 || die "adb not found. Install Android platform-tools (see the README) and try again."
 command -v unzip >/dev/null 2>&1 || die "unzip not found."
@@ -153,12 +161,13 @@ if installed "$ZENFM_PKG"; then
     zenfm_app_have=$(shell dumpsys package "$ZENFM_PKG" | sed -n 's/^ *versionName=//p' | head -n 1)
     [ -n "$zenfm_app_have" ] || zenfm_app_have=unknown
 fi
-if $koreader; then say "Nook GlowLight 4 Plus with KOReader found."; else say "Nook GlowLight 4 Plus found; KOReader is not installed."; fi
+if $koreader; then say "Found a Nook ($model) with KOReader."; else say "Found a Nook ($model); KOReader is not installed."; fi
 
 step "Choosing what to install"
 say "Always: Nook Wi-Fi Helper and the Nook Wi-Fi KOReader plugin, with their permissions."
 install_koreader=false
 nook_setup=false
+fonts=false
 launcher=false
 set_home=false
 appstore=false
@@ -182,6 +191,12 @@ if $nook_files; then
     say "Page buttons and frontlight: the Nook's page buttons turn pages in KOReader, and"
     say "KOReader's own brightness and warmth sliders replace Android's light dialog."
     ask "Set them up?" y && nook_setup=true
+fi
+if $fonts_file && { $koreader || $install_koreader; }; then
+    say ""
+    say "Reading fonts: Atkinson Hyperlegible Next and Lexend, made for legibility, in KOReader's"
+    say "font menu (free fonts under the SIL Open Font License)."
+    ask "Install the reading fonts?" y && fonts=true
 fi
 if [ -n "$launcher_apk" ]; then
     say ""
@@ -235,6 +250,7 @@ $install_koreader && say "- KOReader $version"
 say "- Nook Wi-Fi Helper and the Nook Wi-Fi plugin, with their permissions"
 if $koreader || $install_koreader; then say "- KOReader's permissions for the frontlight and its files"; fi
 $nook_setup && say "- Page buttons and frontlight setup"
+$fonts && say "- Reading fonts: Atkinson Hyperlegible Next and Lexend"
 if $launcher; then
     if $set_home; then say "- KOReader Home, as the default Home app"; else say "- KOReader Home (not the default Home app)"; fi
 fi
@@ -254,6 +270,7 @@ step "Checking the release files"
 files="$helper_apk $plugin_zip"
 $install_koreader && files="$files $koreader_apk"
 $nook_setup && files="$files $NOOK_PATCHES $EVENT_MAP"
+$fonts && files="$files $FONTS_ZIP"
 $launcher && files="$files $launcher_apk $PATCH"
 if [ -n "$sum" ]; then
     for f in $files; do verify "$f"; done
@@ -344,6 +361,20 @@ if $nook_setup; then
     fi
 fi
 
+if $fonts; then
+    step "Installing the reading fonts"
+    rm -rf "$tmp/fonts" && mkdir -p "$tmp/fonts"
+    unzip -q "$FONTS_ZIP" -d "$tmp/fonts"
+    adb shell mkdir -p "$FONTS"
+    for f in $FONT_FAMILIES; do
+        [ -f "$tmp/fonts/$f/OFL.txt" ] || die "$FONTS_ZIP does not contain $f."
+        # Replace the folder: it holds only this release's copy of the family.
+        adb shell rm -rf "$FONTS/$f"
+        adb push "$tmp/fonts/$f" "$FONTS/" >/dev/null 2>&1 || die "Could not copy $f to the Nook."
+        say "Fonts copied to $FONTS/$f."
+    done
+fi
+
 if $launcher; then
     step "Installing the KOReader Home launcher"
     install_apk "$launcher_apk" "KOReader Home launcher" "$LAUNCHER_PKG"
@@ -425,12 +456,13 @@ if $zenfm; then
 fi
 
 step "Done"
-say "Exit KOReader and open it again: it loads plugins and patches only when it starts."
+say "If KOReader is open, exit it and open it again: it loads plugins and patches only when it starts."
 say "Then look for Settings -> Network -> Nook Wi-Fi."
 if $set_home; then
     say ""
     say "To make another launcher the default again, list them with"
     say "  adb shell cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.HOME"
-    say "and set one, for example Olauncher:"
-    say "  adb shell cmd package set-home-activity app.olauncher/.MainActivity"
+    say "and set one, for example the Nook's own home screen:"
+    say "  adb shell cmd package set-home-activity com.nook.partner/.FacadeLauncherActivity"
+    say "or run uninstall.sh, which asks which Home app to use."
 fi

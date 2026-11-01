@@ -26,6 +26,8 @@ VERSION := $(shell sed -n 's/.*versionName = "\(.*\)"/\1/p' helper/app/build.gra
 PLUGIN_VERSION := $(shell sed -n 's/^local PLUGIN_VERSION = "\(.*\)"/\1/p' $(PLUGIN)/main.lua)
 APKSIGNER = $(ANDROID_HOME)/build-tools/$(shell ls $(ANDROID_HOME)/build-tools | sort -V | tail -1)/apksigner
 DIST := dist
+# Reading fonts shipped in dist/fonts.zip (folders under third_party/fonts).
+FONT_FAMILIES := AtkinsonHyperlegibleNext Lexend
 # SHA-256 of the release signing certificate (~/.android/nookwifi-release.jks).
 # Every release must be signed with this key, or updates fail to install.
 RELEASE_CERT_SHA256 := 86f2c36fd0268087a23c5cd8b748720e97d476697fca0cc75eca0f2127ba2415
@@ -93,7 +95,7 @@ release:
 install-release: release
 	adb install -r $(RELEASE_APK)
 
-# Everything a user needs: signed APKs, plugin zip, launcher patch, install script, checksums.
+# Everything a user needs: signed APKs, plugin zip, launcher patch, fonts, install scripts, checksums.
 dist: check release release-launcher
 	@test "$(VERSION)" = "$(PLUGIN_VERSION)" || { echo "Version mismatch: helper $(VERSION), plugin $(PLUGIN_VERSION)"; exit 1; }
 	grep -q 'version = "$(VERSION)"' $(PLUGIN)/_meta.lua || { echo "_meta.lua version is not $(VERSION)"; exit 1; }
@@ -110,10 +112,12 @@ dist: check release release-launcher
 	cp $(RELEASE_APK) $(DIST)/nookwifi-helper-$(VERSION).apk
 	cp $(LAUNCHER_APK) $(DIST)/koreader-home-$(LAUNCHER_VERSION).apk
 	cp $(HOME_PATCH) $(DIST)/
-	cp scripts/install.sh scripts/install.ps1 scripts/install.cmd $(DIST)/
+	cp scripts/install.sh scripts/install.ps1 scripts/install.cmd scripts/uninstall.sh scripts/uninstall.ps1 scripts/uninstall.cmd $(DIST)/
 	cp $(KOREADER_APK) $(DIST)/
 	cp $(NOOK_PATCHES) $(NOOK_EVENT_MAP) $(DIST)/
 	cd plugin && zip -qrX ../$(DIST)/nookwifi.koplugin-$(VERSION).zip nookwifi.koplugin -x '*.DS_Store'
+# Reading fonts (SIL OFL 1.1), each family folder with its OFL.txt and SOURCE.txt.
+	cd third_party/fonts && zip -qrX ../../$(DIST)/fonts.zip $(FONT_FAMILIES) -x '*.DS_Store'
 	cd $(DIST) && shasum -a 256 *.apk *.zip *.lua *.sh *.ps1 *.cmd > SHA256SUMS
 	@ls -la $(DIST)
 
