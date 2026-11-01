@@ -200,8 +200,14 @@ function Get-PluginVersion([string]$Plugin) {
 }
 $koreader = Test-Installed $KoreaderPkg
 $appstoreHave = Get-PluginVersion 'appstore.koplugin'
-$zenfmHave = Get-PluginVersion 'zenfm.koplugin'
-if ($zenfmHave -and -not (Test-Installed $ZenfmPkg)) { $zenfmHave = $null }
+# ZenFM is a plugin plus a companion app; each is tracked on its own, so a partial install
+# gets only the missing part and an installed part is never replaced.
+$zenfmPluginHave = Get-PluginVersion 'zenfm.koplugin'
+$zenfmAppHave = $null
+if (Test-Installed $ZenfmPkg) {
+    $dump = Invoke-Adb shell dumpsys package $ZenfmPkg
+    if ($dump -match '(?m)^\s*versionName=(\S+)') { $zenfmAppHave = $Matches[1] } else { $zenfmAppHave = 'unknown' }
+}
 if ($koreader) { Say 'Nook GlowLight 4 Plus with KOReader found.' } else { Say 'Nook GlowLight 4 Plus found; KOReader is not installed.' }
 
 Step 'Choosing what to install'
@@ -212,6 +218,9 @@ $launcher = $false
 $setHome = $false
 $appstore = $false
 $zenfm = $false
+$zenfmPlugin = $false
+$zenfmApp = $false
+$zenfmRelease = 'latest'
 $version = $null
 if (-not $koreader) {
     if ($koreaderApk) {
@@ -252,11 +261,22 @@ if ($appstoreHave) {
     $appstore = Ask 'Install App Store?' 'n'
 }
 Say ''
-if ($zenfmHave) {
-    Say "ZenFM $zenfmHave is already installed (it updates itself)."
-} else {
+if ($zenfmPluginHave -and $zenfmAppHave) {
+    Say "ZenFM $zenfmPluginHave is already installed (it updates itself)."
+} elseif (-not $zenfmPluginHave -and -not $zenfmAppHave) {
     Say "ZenFM: manage the Nook's files from your computer's web browser (from GitHub)."
-    $zenfm = Ask 'Install ZenFM?' 'n'
+    if (Ask 'Install ZenFM?' 'n') { $zenfm = $true; $zenfmPlugin = $true; $zenfmApp = $true }
+} elseif ($zenfmPluginHave) {
+    Say "ZenFM is partly installed: plugin $zenfmPluginHave is there, but its companion app is missing."
+    Say "The companion app from the same release ($zenfmPluginHave) can be added; the plugin is left as it is."
+    if (Ask 'Install the ZenFM companion app?' 'n') { $zenfm = $true; $zenfmApp = $true; $zenfmRelease = "tags/v$zenfmPluginHave" }
+} elseif ($zenfmAppHave -eq 'unknown') {
+    Say 'ZenFM is partly installed: its companion app is there, but the plugin is missing and the'
+    Say "app's version could not be read. Install the plugin from github.com/$ZenfmRepo by hand."
+} else {
+    Say "ZenFM is partly installed: companion app $zenfmAppHave is there, but the plugin is missing."
+    Say "The plugin from the same release ($zenfmAppHave) can be added; the app is left as it is."
+    if (Ask 'Install the ZenFM plugin?' 'n') { $zenfm = $true; $zenfmPlugin = $true; $zenfmRelease = "tags/v$zenfmAppHave" }
 }
 
 Step 'Summary'
@@ -268,7 +288,13 @@ if ($launcher) {
     if ($setHome) { Say '- KOReader Home, as the default Home app' } else { Say '- KOReader Home (not the default Home app)' }
 }
 if ($appstore) { Say "- App Store (downloaded from github.com/$AppstoreRepo)" }
-if ($zenfm) { Say "- ZenFM and its companion app (downloaded from github.com/$ZenfmRepo)" }
+if ($zenfmPlugin -and $zenfmApp) {
+    Say "- ZenFM and its companion app (downloaded from github.com/$ZenfmRepo)"
+} elseif ($zenfmApp) {
+    Say "- ZenFM's companion app, release $zenfmPluginHave (downloaded from github.com/$ZenfmRepo)"
+} elseif ($zenfmPlugin) {
+    Say "- ZenFM's plugin, release $zenfmAppHave (downloaded from github.com/$ZenfmRepo)"
+}
 if ($interactive -and -not (Ask 'Go ahead?' 'y')) {
     Say 'Stopped; nothing was changed.'
     exit 0
@@ -396,17 +422,23 @@ try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
         $ProgressPreference = 'SilentlyContinue' # the progress bar makes downloads very slow in 5.1
     }
-    # The newest stable release's tag and the download URL of its asset matching $Pattern.
-    function Get-LatestAsset([string]$Repo, [string]$Pattern) {
+    # GitHub release metadata of $Repo: $Ref is 'latest' (the newest stable release) or
+    # 'tags/<tag>'. Read it once per install, so every file comes from the same release.
+    function Get-Release([string]$Repo, [string]$Ref) {
         try {
-            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" `
+            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/$Ref" `
                 -Headers @{ Accept = 'application/vnd.github+json' } -UseBasicParsing
         } catch {
-            Fail "Could not read the latest release of $Repo from GitHub."
+            Fail "Could not read release $($Ref -replace '^tags/', '') of $Repo from GitHub."
         }
-        $asset = @($release.assets | Where-Object { $_.name -like $Pattern }) | Select-Object -First 1
-        if (-not $release.tag_name -or -not $asset) { Fail "The latest release of $Repo has no file matching $Pattern." }
-        return @{ Tag = $release.tag_name; Url = $asset.browser_download_url; Name = $asset.name }
+        if (-not $release.tag_name) { Fail "Could not read a release tag from GitHub's reply." }
+        return $release
+    }
+    # The asset of $Release matching $Pattern (its name and download URL).
+    function Get-ReleaseAsset($Release, [string]$Pattern) {
+        $asset = @($Release.assets | Where-Object { $_.name -like $Pattern }) | Select-Object -First 1
+        if (-not $asset) { Fail "Release $($Release.tag_name) has no file matching $Pattern." }
+        return @{ Url = $asset.browser_download_url; Name = $asset.name }
     }
     function Get-Download([string]$Url, [string]$OutFile) {
         try {
@@ -429,26 +461,34 @@ try {
 
     if ($appstore) {
         Step 'Installing App Store'
-        $found = Get-LatestAsset $AppstoreRepo 'appstore.koplugin.zip'
+        $release = Get-Release $AppstoreRepo 'latest'
+        $found = Get-ReleaseAsset $release 'appstore.koplugin.zip'
         $zip = Join-Path $tmp $found.Name
         Get-Download $found.Url $zip
         Push-PluginZip $zip 'appstore.koplugin'
-        Say "App Store $($found.Tag) copied to $Plugins/appstore.koplugin (from github.com/$AppstoreRepo)."
+        Say "App Store $($release.tag_name) copied to $Plugins/appstore.koplugin (from github.com/$AppstoreRepo)."
     }
 
     if ($zenfm) {
         Step 'Installing ZenFM'
-        # On Android, ZenFM is a KOReader plugin plus a companion app that runs its server;
-        # install both from the same release so they match.
-        $zipAsset = Get-LatestAsset $ZenfmRepo 'ZenFM-koreader-android-*.zip'
-        $apkAsset = Get-LatestAsset $ZenfmRepo 'ZenFM-android-*.apk'
-        $apk = Join-Path $tmp $apkAsset.Name
-        Get-Download $apkAsset.Url $apk
-        Install-Apk $apk 'ZenFM companion app' $ZenfmPkg
-        $zip = Join-Path $tmp $zipAsset.Name
-        Get-Download $zipAsset.Url $zip
-        Push-PluginZip $zip 'zenfm.koplugin'
-        Say "ZenFM $($zipAsset.Tag) copied to $Plugins/zenfm.koplugin (from github.com/$ZenfmRepo)."
+        # On Android, ZenFM is a KOReader plugin plus a companion app that runs its server.
+        # Both parts come from one release (read once), so they match: the newest stable one for
+        # a fresh install, or the installed part's own release when adding the missing part.
+        $release = Get-Release $ZenfmRepo $zenfmRelease
+        if ($zenfmApp) {
+            $apkAsset = Get-ReleaseAsset $release 'ZenFM-android-*.apk'
+            $apk = Join-Path $tmp $apkAsset.Name
+            Get-Download $apkAsset.Url $apk
+            Install-Apk $apk 'ZenFM companion app' $ZenfmPkg
+            Say "ZenFM companion app $($release.tag_name) installed (from github.com/$ZenfmRepo)."
+        }
+        if ($zenfmPlugin) {
+            $zipAsset = Get-ReleaseAsset $release 'ZenFM-koreader-android-*.zip'
+            $zip = Join-Path $tmp $zipAsset.Name
+            Get-Download $zipAsset.Url $zip
+            Push-PluginZip $zip 'zenfm.koplugin'
+            Say "ZenFM $($release.tag_name) copied to $Plugins/zenfm.koplugin (from github.com/$ZenfmRepo)."
+        }
         Say 'The first time you start it, approve the "Start ZenFM?" prompt (see its README).'
     }
 } finally {

@@ -79,6 +79,7 @@ It always installs the helper and the plugin, gives them their permissions, and 
 | Make KOReader Home the default Home app now? | you said yes to KOReader Home | No |
 | Install [App Store](https://github.com/omer-faruq/appstore.koplugin)? (browse and install community KOReader plugins and patches) | it is not installed | No |
 | Install [ZenFM](https://github.com/xZenLabs/zen-fm)? (manage the Nook's files from your computer's web browser) | it is not installed | No |
+| Install the ZenFM companion app? / Install the ZenFM plugin? | only one of ZenFM's two parts is installed (the missing part comes from the same ZenFM release as the installed one) | No |
 
 It then shows a summary and asks **Go ahead?** before changing anything; answer `n` to stop with nothing changed. Run without a terminal (for example from another program), it takes the defaults and never changes the default Home app.
 
@@ -86,7 +87,7 @@ Good to know:
 
 - It never uninstalls anything, and never replaces a KOReader you already have.
 - It never overwrites a key map (`koreader/settings/event_map.lua`) you already have, unless it is the same.
-- **App Store and ZenFM** are separate projects with their own licenses (GPL-3.0 and AGPL-3.0) and support. The script downloads the newest stable release of each from its own GitHub page (for ZenFM, its KOReader plugin and its small companion app). If one is already installed, the script leaves it alone: both can update themselves. Neither publishes checksums, so the downloads are trusted because they come over HTTPS from the projects' own release pages.
+- **App Store and ZenFM** are separate projects with their own licenses (GPL-3.0 and AGPL-3.0) and support. The script downloads the newest stable release of each from its own GitHub page (for ZenFM, its KOReader plugin and its small companion app). If one is already installed, the script leaves it alone: both can update themselves. If only one of ZenFM's two parts is on the Nook, the script offers just the missing part, from the same ZenFM release, and never replaces the part that is there. Neither publishes checksums, so the downloads are trusted because they come over HTTPS from the projects' own release pages.
 - Afterwards, exit KOReader and open it again.
 
 ### Manual install

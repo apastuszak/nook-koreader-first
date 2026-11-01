@@ -138,8 +138,14 @@ plugin_version() {
 koreader=false
 installed "$KOREADER_PKG" && koreader=true
 appstore_have=$(plugin_version appstore.koplugin)
-zenfm_have=$(plugin_version zenfm.koplugin)
-if [ -n "$zenfm_have" ] && ! installed "$ZENFM_PKG"; then zenfm_have=; fi
+# ZenFM is a plugin plus a companion app; each is tracked on its own, so a partial install
+# gets only the missing part and an installed part is never replaced.
+zenfm_plugin_have=$(plugin_version zenfm.koplugin)
+zenfm_app_have=
+if installed "$ZENFM_PKG"; then
+    zenfm_app_have=$(shell dumpsys package "$ZENFM_PKG" | sed -n 's/^ *versionName=//p' | head -n 1)
+    [ -n "$zenfm_app_have" ] || zenfm_app_have=unknown
+fi
 if $koreader; then say "Nook GlowLight 4 Plus with KOReader found."; else say "Nook GlowLight 4 Plus found; KOReader is not installed."; fi
 
 step "Choosing what to install"
@@ -150,6 +156,9 @@ launcher=false
 set_home=false
 appstore=false
 zenfm=false
+zenfm_plugin=false
+zenfm_app=false
+zenfm_release=latest
 if ! $koreader; then
     if [ -n "$koreader_apk" ]; then
         version=${koreader_apk#koreader-android-*-}
@@ -190,11 +199,22 @@ else
     ask "Install App Store?" n && appstore=true
 fi
 say ""
-if [ -n "$zenfm_have" ]; then
-    say "ZenFM $zenfm_have is already installed (it updates itself)."
-else
+if [ -n "$zenfm_plugin_have" ] && [ -n "$zenfm_app_have" ]; then
+    say "ZenFM $zenfm_plugin_have is already installed (it updates itself)."
+elif [ -z "$zenfm_plugin_have" ] && [ -z "$zenfm_app_have" ]; then
     say "ZenFM: manage the Nook's files from your computer's web browser (from GitHub)."
-    ask "Install ZenFM?" n && zenfm=true
+    ask "Install ZenFM?" n && { zenfm=true; zenfm_plugin=true; zenfm_app=true; }
+elif [ -n "$zenfm_plugin_have" ]; then
+    say "ZenFM is partly installed: plugin $zenfm_plugin_have is there, but its companion app is missing."
+    say "The companion app from the same release ($zenfm_plugin_have) can be added; the plugin is left as it is."
+    ask "Install the ZenFM companion app?" n && { zenfm=true; zenfm_app=true; zenfm_release=tags/v$zenfm_plugin_have; }
+elif [ "$zenfm_app_have" = unknown ]; then
+    say "ZenFM is partly installed: its companion app is there, but the plugin is missing and the"
+    say "app's version could not be read. Install the plugin from github.com/$ZENFM_REPO by hand."
+else
+    say "ZenFM is partly installed: companion app $zenfm_app_have is there, but the plugin is missing."
+    say "The plugin from the same release ($zenfm_app_have) can be added; the app is left as it is."
+    ask "Install the ZenFM plugin?" n && { zenfm=true; zenfm_plugin=true; zenfm_release=tags/v$zenfm_app_have; }
 fi
 
 step "Summary"
@@ -206,7 +226,13 @@ if $launcher; then
     if $set_home; then say "- KOReader Home, as the default Home app"; else say "- KOReader Home (not the default Home app)"; fi
 fi
 $appstore && say "- App Store (downloaded from github.com/$APPSTORE_REPO)"
-$zenfm && say "- ZenFM and its companion app (downloaded from github.com/$ZENFM_REPO)"
+if $zenfm_plugin && $zenfm_app; then
+    say "- ZenFM and its companion app (downloaded from github.com/$ZENFM_REPO)"
+elif $zenfm_app; then
+    say "- ZenFM's companion app, release $zenfm_plugin_have (downloaded from github.com/$ZENFM_REPO)"
+elif $zenfm_plugin; then
+    say "- ZenFM's plugin, release $zenfm_app_have (downloaded from github.com/$ZENFM_REPO)"
+fi
 if $interactive; then
     ask "Go ahead?" y || { say "Stopped; nothing was changed."; exit 0; }
 fi
@@ -322,18 +348,24 @@ if $launcher; then
     fi
 fi
 
-# Prints the newest stable release's tag, then the download URL of its asset matching the
-# shell pattern $2.
-latest_asset() {
-    json=$(curl -fsSL -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$1/releases/latest") \
-        || die "Could not read the latest release of $1 from GitHub."
-    tag=$(printf '%s\n' "$json" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)
-    url=
-    for u in $(printf '%s\n' "$json" | sed -n 's/.*"browser_download_url": *"\([^"]*\)".*/\1/p'); do
-        case "${u##*/}" in $2) url=$u; break ;; esac
+# Prints the GitHub release metadata of repo $1: $2 is "latest" (the newest stable release)
+# or "tags/<tag>". Read it once per install, so every file comes from the same release.
+release_json() {
+    curl -fsSL -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$1/releases/$2" \
+        || die "Could not read release ${2#tags/} of $1 from GitHub."
+}
+# Prints the tag of the release metadata $1.
+release_tag() {
+    tag=$(printf '%s\n' "$1" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)
+    [ -n "$tag" ] || die "Could not read a release tag from GitHub's reply."
+    printf '%s\n' "$tag"
+}
+# Prints the download URL of the asset matching the shell pattern $2 in release metadata $1.
+release_asset() {
+    for u in $(printf '%s\n' "$1" | sed -n 's/.*"browser_download_url": *"\([^"]*\)".*/\1/p'); do
+        case "${u##*/}" in $2) printf '%s\n' "$u"; return 0 ;; esac
     done
-    [ -n "$tag" ] && [ -n "$url" ] || die "The latest release of $1 has no file matching $2."
-    printf '%s\n%s\n' "$tag" "$url"
+    die "Release $(release_tag "$1") has no file matching $2."
 }
 download() {
     curl -fsSL -o "$2" "$1" || die "Could not download $1."
@@ -348,29 +380,34 @@ push_plugin_zip() {
 
 if $appstore; then
     step "Installing App Store"
-    # `set -- $(...)` would hide a failure inside the substitution, so capture it first.
-    found=$(latest_asset "$APPSTORE_REPO" 'appstore.koplugin.zip') || exit 1
-    set -- $found
-    download "$2" "$tmp/appstore.koplugin.zip"
+    # A failure inside $(...) does not stop the script by itself, hence the `|| exit 1`s.
+    json=$(release_json "$APPSTORE_REPO" latest) || exit 1
+    tag=$(release_tag "$json") || exit 1
+    url=$(release_asset "$json" 'appstore.koplugin.zip') || exit 1
+    download "$url" "$tmp/appstore.koplugin.zip"
     push_plugin_zip "$tmp/appstore.koplugin.zip" appstore.koplugin
-    say "App Store $1 copied to $PLUGINS/appstore.koplugin (from github.com/$APPSTORE_REPO)."
+    say "App Store $tag copied to $PLUGINS/appstore.koplugin (from github.com/$APPSTORE_REPO)."
 fi
 
 if $zenfm; then
     step "Installing ZenFM"
-    # On Android, ZenFM is a KOReader plugin plus a companion app that runs its server;
-    # install both from the same release so they match.
-    found=$(latest_asset "$ZENFM_REPO" 'ZenFM-koreader-android-*.zip') || exit 1
-    set -- $found
-    zen_tag=$1 zen_zip_url=$2
-    found=$(latest_asset "$ZENFM_REPO" 'ZenFM-android-*.apk') || exit 1
-    set -- $found
-    zen_apk_url=$2
-    download "$zen_apk_url" "$tmp/${zen_apk_url##*/}"
-    install_apk "$tmp/${zen_apk_url##*/}" "ZenFM companion app" "$ZENFM_PKG"
-    download "$zen_zip_url" "$tmp/zenfm.zip"
-    push_plugin_zip "$tmp/zenfm.zip" zenfm.koplugin
-    say "ZenFM $zen_tag copied to $PLUGINS/zenfm.koplugin (from github.com/$ZENFM_REPO)."
+    # On Android, ZenFM is a KOReader plugin plus a companion app that runs its server.
+    # Both parts come from one release (read once), so they match: the newest stable one for
+    # a fresh install, or the installed part's own release when adding the missing part.
+    json=$(release_json "$ZENFM_REPO" "$zenfm_release") || exit 1
+    zen_tag=$(release_tag "$json") || exit 1
+    if $zenfm_app; then
+        url=$(release_asset "$json" 'ZenFM-android-*.apk') || exit 1
+        download "$url" "$tmp/${url##*/}"
+        install_apk "$tmp/${url##*/}" "ZenFM companion app" "$ZENFM_PKG"
+        say "ZenFM companion app $zen_tag installed (from github.com/$ZENFM_REPO)."
+    fi
+    if $zenfm_plugin; then
+        url=$(release_asset "$json" 'ZenFM-koreader-android-*.zip') || exit 1
+        download "$url" "$tmp/zenfm.zip"
+        push_plugin_zip "$tmp/zenfm.zip" zenfm.koplugin
+        say "ZenFM $zen_tag copied to $PLUGINS/zenfm.koplugin (from github.com/$ZENFM_REPO)."
+    fi
     say "The first time you start it, approve the \"Start ZenFM?\" prompt (see its README)."
 fi
 
