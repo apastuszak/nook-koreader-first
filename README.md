@@ -9,6 +9,7 @@ What you get:
 - **Nook power off after sleeping**: let the Nook switch itself off after sleeping for a while.
 - **Open Nook home**: jump to the Nook's own home screen when you do need it (the B&N store, the Nook's settings), and press Home to come back.
 - **Page buttons and frontlight**: the Nook's four page buttons turn pages in KOReader, and KOReader's own brightness and warmth sliders replace Android's light dialog.
+- **Reading fonts**: Atkinson Hyperlegible Next, Lexend, Literata and Bitter, each with real italics, in KOReader's font menu.
 - **KOReader as the Home app** (optional): the Home button opens KOReader, and KOReader's Exit becomes **Restart KOReader**.
 
 The parts:
@@ -17,7 +18,8 @@ The parts:
 - **Nook Wi-Fi plugin** (`nookwifi.koplugin-<version>.zip`): the KOReader plugin you actually use: the Wi-Fi, Bluetooth, power-off and Open Nook home menus come from it.
 - **KOReader Home** (`koreader-home-<version>.apk`, optional) and its KOReader patch (`2-koreader-home.lua`): see [Optional: KOReader Home launcher](#optional-koreader-home-launcher).
 - **Nook setup files** (`event_map.lua`, `2-nook-frontlight-widget.lua`): a KOReader key map and patch; see [Page buttons and frontlight](#page-buttons-and-frontlight).
-- **`install.sh`**: installs everything over USB and sets the permissions in one step (see [Quick install over USB](#quick-install-over-usb)).
+- **Reading fonts** (`fonts.zip`): four free font families for KOReader; see [Reading fonts](#reading-fonts).
+- **`install.sh`** (Windows: `install.cmd`): installs everything over USB and sets the permissions in one step (see [Quick install over USB](#quick-install-over-usb)). **`uninstall.sh`** (Windows: `uninstall.cmd`) removes it again (see [Remove](#remove)).
 
 The helper and plugin keep the names they started with ("Nook Wi-Fi"), because renaming them would break updates of existing installs.
 
@@ -95,7 +97,7 @@ Good to know:
 
 - It never uninstalls anything, and never replaces a KOReader you already have.
 - It never overwrites a key map (`koreader/settings/event_map.lua`) you already have, unless it is the same.
-- **Reading fonts** go into `koreader/fonts/AtkinsonHyperlegibleNext`, `Lexend`, `Literata` and `Bitter`, each with its license. In KOReader, open a book and pick them under the font menu (the **Aa** tab, then **Font**); Lexend is listed as **Lexend-aalt** (the version with a single-storey "a"). Other fonts in `koreader/fonts` are not touched, and a font folder of the same name that this script did not install is kept as it is.
+- **Reading fonts** go into `koreader/fonts/`, one folder per family; see [Reading fonts](#reading-fonts). Other fonts there are not touched, and a font folder of the same name that this script did not install is kept as it is.
 - **App Store and ZenFM** are separate projects with their own licenses (GPL-3.0 and AGPL-3.0) and support. The script downloads the newest stable release of each from its own GitHub page (for ZenFM, its KOReader plugin and its small companion app). If one is already installed, the script leaves it alone: both can update themselves. If only one of ZenFM's two parts is on the Nook, the script offers just the missing part, from the same ZenFM release, and never replaces the part that is there. Neither publishes checksums, so the downloads are trusted because they come over HTTPS from the projects' own release pages.
 - Afterwards, exit KOReader and open it again.
 
@@ -129,7 +131,13 @@ Good to know:
    adb push 2-nook-frontlight-widget.lua /sdcard/koreader/patches/
    adb push event_map.lua /sdcard/koreader/settings/
    ```
-6. **Exit KOReader and open it again.** On Android, KOReader has no Restart option, and it only loads plugins and patches when it starts.
+6. **Reading fonts (optional).** Unzip `fonts.zip` and copy its four folders into `koreader/fonts/`. Over USB:
+   ```sh
+   unzip fonts.zip -d fonts
+   adb shell mkdir -p /sdcard/koreader/fonts
+   adb push fonts/AtkinsonHyperlegibleNext fonts/Lexend fonts/Literata fonts/Bitter /sdcard/koreader/fonts/
+   ```
+7. **Exit KOReader and open it again.** On Android, KOReader has no Restart option, and it only loads plugins, patches and fonts when it starts.
 
 ## Use
 
@@ -181,6 +189,29 @@ Two small KOReader files; the install script offers to set them up. KOReader rea
 
 To remove them, delete `event_map.lua` from `koreader/settings/` and the patch from `koreader/patches/`, then restart KOReader.
 
+### Reading fonts
+
+Four free font families, installed by the install script (it asks first; the answer defaults to yes). Each comes in several weights with matching italics, so italic text in a book uses a real italic instead of a slanted copy of the upright.
+
+| Font | In KOReader's menu | Style | Weights | Italics |
+|---|---|---|---|---|
+| [Atkinson Hyperlegible Next](https://github.com/googlefonts/atkinson-hyperlegible-next) | Atkinson Hyperlegible Next | Sans serif from the Braille Institute, with letters designed to be hard to confuse (for example I, l and 1) | ExtraLight to ExtraBold (7) | Yes |
+| [Lexend](https://github.com/octaviopardo/lexend/tree/Lexend-a) | **Lexend-aalt** | Sans serif designed to make reading easier; this is its version with a single-storey "a" (written like a handwritten a) | Thin to Black (9) | Yes (added by this project; see below) |
+| [Literata](https://github.com/googlefonts/literata) | Literata | Serif made for reading books on screens (the typeface of Google Play Books) | ExtraLight to Black (8) | Yes |
+| [Bitter](https://github.com/solmatas/BitterPro) | Bitter | Slab serif designed for reading on screens | Thin to Black (9) | Yes |
+
+**To use one:** open a book, tap the top of the screen to open the menu, choose the second tab (typesetting), then **Font**, and pick the font. To make it the default for new books, hold the font's name and choose to use it as the **default font (★)**. **Font Weight**, in the bottom menu (tap the bottom of the screen, contrast tab), makes text bolder or lighter, using a font's real weights where it has them.
+
+**Where they are:** `koreader/fonts/AtkinsonHyperlegibleNext`, `Lexend`, `Literata` and `Bitter` on the Nook's storage, each folder with its license (`OFL.txt`) and a note on where the files came from (`SOURCE.txt`). KOReader reads fonts only when it starts, so exit KOReader and open it again after adding or removing fonts.
+
+**What this project changed:**
+
+- **Atkinson Hyperlegible Next** and **Literata**: nothing; the files are the official ones. For Literata, only its standard size is included (not the separate versions tuned for very small or very large text).
+- **Lexend**: the official Lexend has no italic. This is Octavio Pardo's alternate-"a" version, whose slanted fonts were not marked as italic, so KOReader showed them as extra upright fonts. This project marks them as Lexend's italics (only their names and style settings change; the letter shapes are untouched). KOReader lists the family as **Lexend-aalt**, the name the fork gives it.
+- **Bitter**: Bitter is now published only as a "variable" font, of which KOReader uses just one weight, Thin. This project cuts it into separate files, one per weight, the way Google Fonts makes its own downloads.
+
+**Your own fonts** can go in `koreader/fonts/` too. The install script never touches other fonts there, and it keeps a folder with one of these four names if this project did not install it. The uninstall script asks before removing the reading fonts and removes only the folders this project installed.
+
 ### Open Nook home
 
 **Tools → Open Nook home** opens the stock Nook home screen (your library, the B&N store and the Nook's own settings) without changing your default Home app. Press **Home** to come back: with the optional KOReader Home launcher that returns to KOReader; otherwise it goes to your default launcher. The **Open Nook home** action can also be assigned to a gesture or a key.
@@ -203,6 +234,8 @@ To remove them, delete `event_map.lua` from `koreader/settings/` and the patch f
 ## Update
 
 Install the new helper APK over the old one, and replace the `nookwifi.koplugin` folder with the new one. Then exit KOReader and open it again. Your location permission is kept.
+
+Running the install script again also updates the reading fonts: it replaces the four font folders it installed (and only those).
 
 Always update the helper and the plugin together; **Helper info** shows both versions so you can check. If the two cannot work together, the plugin says to update both, or that the helper is out of date.
 
@@ -234,6 +267,8 @@ If you keep KOReader, exit it and open it again afterwards.
 2. Uninstall **Nook Wi-Fi Helper** in Android Settings → Apps, or over USB with `adb uninstall dev.nookwifi.helper`.
 3. Exit KOReader and open it again. KOReader's Wi-Fi items go back to opening Android settings.
 
+To remove the reading fonts by hand, delete the `AtkinsonHyperlegibleNext`, `Lexend`, `Literata` and `Bitter` folders from `koreader/fonts/`, then exit KOReader and open it again. Books that used them go back to KOReader's default font.
+
 Networks you joined, and remotes you paired, stay saved in Android. If you set **Nook power off after sleeping**, uninstalling the helper turns it back to never (Android removes the setting, and the Nook treats a missing setting as never).
 
 ## Troubleshooting
@@ -247,6 +282,8 @@ Networks you joined, and remotes you paired, stay saved in Android. If you set *
 | "Wrong password for …" on a saved network | Forget the network in Android Wi-Fi settings, then join it again from **Scan for networks…**. |
 | "allow Nook Wi-Fi Helper to modify system settings" | Tap **Open**, turn the switch on, go back to KOReader, and choose again. Or over USB: `adb shell appops set dev.nookwifi.helper WRITE_SETTINGS allow`. |
 | "Could not connect to X. Connected to Y instead." | Android could not reach X (out of range or rejected) and went back to another saved network. |
+| A reading font is not in KOReader's font menu | Exit KOReader and open it again (it reads fonts only at start-up). Check that the font's folder is directly in `koreader/fonts/` (for example `koreader/fonts/Literata/Literata-Regular.ttf`). Lexend is listed as **Lexend-aalt**. |
+| The install script says "Kept your own koreader/fonts/…" | A folder with that font's name was already there and was not installed by this project, so it was left alone. To use this release's copy, delete that folder and run the script again. |
 
 ## Optional: KOReader Home launcher
 
@@ -310,14 +347,14 @@ adb shell am start -n dev.nookkoreader.launcher/.RecoveryActivity
 ```
 
 To switch the default back to another launcher over USB, list the Home apps and set
-one (for example Olauncher, or the Nook's own launcher):
+one (for example Olauncher, or the Nook's own launcher), or run the uninstall script, which asks:
 
 ```sh
 adb shell cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.HOME
 adb shell cmd package set-home-activity app.olauncher/.MainActivity
 # Use a component exactly as the first command lists it. The Nook's own launcher is
-# listed as com.nook.partner/.FacadeLauncherActivity, but setting it as the default
-# has not been tested.
+# listed as com.nook.partner/.FacadeLauncherActivity; setting it as the default was
+# tested on a GlowLight 4, where Home then opens the Nook's home screen.
 adb shell input keyevent KEYCODE_HOME
 ```
 
@@ -346,7 +383,7 @@ make install   # debug build of the helper + plugin, onto a USB-connected Nook
 make dist      # signed release APK, plugin zip, and SHA256SUMS in dist/
 ```
 
-`make dist` needs `helper/keystore.properties`, which points at the release signing key. Neither the key nor that file is committed to the repository.
+`make dist` needs `helper/keystore.properties`, which points at the release signing key. Neither the key nor that file is committed to the repository. It packs the fonts in `third_party/fonts/` into `fonts.zip` as they are; rebuilding the Lexend italics or the Bitter weights from upstream needs [fontTools](https://github.com/fonttools/fonttools) (`pip install fonttools`) and `scripts/make-lexend-italics.py` or `scripts/make-bitter-static.py` (each script's header says how to run it).
 
 ## License
 
@@ -356,4 +393,11 @@ Nook Wi-Fi (the helper app and the KOReader plugin) is free software: you can re
 
 **KOReader** (`koreader-android-arm-<version>.apk` in the releases) is a separate program by the KOReader developers, also under the GNU AGPL v3.0, included unchanged so the install script can install a tested build. Its source code for the included build is KOReader commit [`b44e9b7`](https://github.com/koreader/koreader/tree/b44e9b7); see [third_party/koreader/README.md](third_party/koreader/README.md).
 
-The reading fonts are included in `fonts.zip` in the releases and in [third_party/fonts/](third_party/fonts/). They are licensed under the [SIL Open Font License 1.1](https://openfontlicense.org), not the AGPL; each font's folder holds its `OFL.txt` and a `SOURCE.txt` naming the upstream commit and any changes. **Atkinson Hyperlegible Next** (Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors) is unchanged. **Lexend** (Copyright 2018 The Lexend Project Authors, Reserved Font Name "RevReading Lexend", which is not used) is the alternate-"a" version from [Octavio Pardo's fork](https://github.com/octaviopardo/lexend/tree/Lexend-a): its upright fonts are unchanged, and its italics are modified versions of the fork's slanted fonts, with only their names and style flags changed (by [scripts/make-lexend-italics.py](scripts/make-lexend-italics.py)) so that KOReader uses them as italics. **Literata** (Copyright 2017 The Literata Project Authors) is unchanged, at its default optical size. **Bitter** (Copyright 2011 The Bitter Project Authors, Reserved Font Name "Bitter Pro", which is not used) is published only as variable fonts, which KOReader shows at their default weight (Thin); the static fonts here are its named weights, cut from Bitter 3.021 by [scripts/make-bitter-static.py](scripts/make-bitter-static.py).
+The **reading fonts** are included in `fonts.zip` in the releases and in [third_party/fonts/](third_party/fonts/). They are separate works under the [SIL Open Font License 1.1](https://openfontlicense.org), not the AGPL: you may use, share and modify them, but not sell them on their own, and a modified version may not use the font's Reserved Font Name. Each font's folder holds its `OFL.txt` and a `SOURCE.txt` naming the exact upstream commit and any changes.
+
+| Font | Copyright | Reserved Font Name | Source | Changes |
+|---|---|---|---|---|
+| Atkinson Hyperlegible Next | 2020-2024 The Atkinson Hyperlegible Next Project Authors | none | [googlefonts/atkinson-hyperlegible-next](https://github.com/googlefonts/atkinson-hyperlegible-next) `7925f50` | none |
+| Lexend (alternate "a") | 2018 The Lexend Project Authors | "RevReading Lexend" (not used) | [octaviopardo/lexend](https://github.com/octaviopardo/lexend/tree/Lexend-a), branch `Lexend-a`, `26500c8` | Uprights none. Italics: the fork's slanted fonts with italic names and style flags, by [scripts/make-lexend-italics.py](scripts/make-lexend-italics.py); outlines unchanged |
+| Literata | 2017 The Literata Project Authors | none | [googlefonts/literata](https://github.com/googlefonts/literata) `0c2761b` | none (default optical size only) |
+| Bitter | 2011 The Bitter Project Authors | "Bitter Pro" (not used; the fonts are named "Bitter", as upstream's are) | [solmatas/BitterPro](https://github.com/solmatas/BitterPro) `de749c6`, version 3.021 | Static fonts cut from the variable fonts, one per named weight, by [scripts/make-bitter-static.py](scripts/make-bitter-static.py) |
