@@ -181,8 +181,12 @@ if ($devices[0] -match 'unauthorized') {
     Fail 'The Nook has not allowed this computer yet. Unlock it, accept the USB debugging prompt, and try again.'
 }
 if ($devices[0] -match 'offline') { Fail 'The Nook is offline. Reconnect the cable and try again.' }
+if ($devices[0] -match 'no permissions') {
+    Fail "This computer may not open the Nook's USB connection (on Linux, add a udev rule: see the README)."
+}
 $model = Invoke-AdbChecked 'Could not read the device model.' shell getprop ro.product.model
 $sdk = Invoke-AdbChecked 'Could not read the Android version.' shell getprop ro.build.version.sdk
+if (-not $model -or -not $sdk) { Fail "Could not read the device's model over adb. Reconnect the Nook and try again." }
 if ($model -ne $NookModel -or $sdk -ne '27') {
     Say "This is not a Nook GlowLight 4 Plus (model $model, Android API $sdk). Nothing here is tested on it."
     if (-not $interactive) { Fail 'Not a Nook GlowLight 4 Plus; stopping.' }
@@ -192,10 +196,12 @@ function Test-Installed([string]$Package) {
     $out = Invoke-Adb shell pm list packages $Package
     return @($out -split "`n" | Where-Object { $_.Trim() -eq "package:$Package" }).Count -gt 0
 }
-# The installed plugin's version from its _meta.lua, or $null if it is not there.
+# The installed plugin's version from its _meta.lua, 'unknown' if its folder is there without
+# a readable version, or $null if it is not installed.
 function Get-PluginVersion([string]$Plugin) {
     $meta = Invoke-Adb shell "cat $Plugins/$Plugin/_meta.lua 2>/dev/null"
-    if ($meta -match 'version\s*=\s*"([^"]*)"') { return $Matches[1] }
+    if ($meta -match '(?<!\w)version\s*=\s*"([^"]*)"') { return $Matches[1] }
+    if ((Invoke-Adb shell "[ -d $Plugins/$Plugin ] && echo yes") -eq 'yes') { return 'unknown' }
     return $null
 }
 $koreader = Test-Installed $KoreaderPkg
@@ -254,7 +260,9 @@ if ($launcherApk) {
     }
 }
 Say ''
-if ($appstoreHave) {
+if ($appstoreHave -eq 'unknown') {
+    Say 'App Store is already installed (it updates itself).'
+} elseif ($appstoreHave) {
     Say "App Store $appstoreHave is already installed (it updates itself)."
 } else {
     Say 'App Store: browse and install community KOReader plugins and patches (from GitHub).'
@@ -262,10 +270,14 @@ if ($appstoreHave) {
 }
 Say ''
 if ($zenfmPluginHave -and $zenfmAppHave) {
-    Say "ZenFM $zenfmPluginHave is already installed (it updates itself)."
+    if ($zenfmPluginHave -eq 'unknown') { Say 'ZenFM is already installed (it updates itself).' }
+    else { Say "ZenFM $zenfmPluginHave is already installed (it updates itself)." }
 } elseif (-not $zenfmPluginHave -and -not $zenfmAppHave) {
     Say "ZenFM: manage the Nook's files from your computer's web browser (from GitHub)."
     if (Ask 'Install ZenFM?' 'n') { $zenfm = $true; $zenfmPlugin = $true; $zenfmApp = $true }
+} elseif ($zenfmPluginHave -eq 'unknown') {
+    Say 'ZenFM is partly installed: its plugin is there, but the companion app is missing and the'
+    Say "plugin's version could not be read. Install the app from github.com/$ZenfmRepo by hand."
 } elseif ($zenfmPluginHave) {
     Say "ZenFM is partly installed: plugin $zenfmPluginHave is there, but its companion app is missing."
     Say "The companion app from the same release ($zenfmPluginHave) can be added; the plugin is left as it is."

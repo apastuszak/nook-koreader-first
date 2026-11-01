@@ -58,7 +58,8 @@ ask() {
     if [ "$2" = y ]; then hint='[Y/n]'; else hint='[y/N]'; fi
     while :; do
         printf '%s %s ' "$1" "$hint"
-        read -r answer || answer=
+        # End of input (Ctrl-D) is not an answer: stop rather than take the default.
+        read -r answer || { say ""; die "No answer; stopping."; }
         case "$answer" in
             '') [ "$2" = y ]; return ;;
             [Yy]*) return 0 ;;
@@ -121,19 +122,25 @@ devices=$(adb devices 2>/dev/null | awk -F '\t' 'NF >= 2 && $1 != ""')
 case "$devices" in
     *unauthorized*) die "The Nook has not allowed this computer yet. Unlock it, accept the USB debugging prompt, and try again." ;;
     *offline*) die "The Nook is offline. Reconnect the cable and try again." ;;
+    *"no permissions"*) die "This computer may not open the Nook's USB connection (on Linux, add a udev rule: see the README)." ;;
 esac
 shell() { adb shell "$@" | tr -d '\r'; }
 model=$(shell getprop ro.product.model)
 sdk=$(shell getprop ro.build.version.sdk)
+[ -n "$model" ] && [ -n "$sdk" ] || die "Could not read the device's model over adb. Reconnect the Nook and try again."
 if [ "$model" != "$NOOK_MODEL" ] || [ "$sdk" != 27 ]; then
     say "This is not a Nook GlowLight 4 Plus (model $model, Android API $sdk). Nothing here is tested on it."
     $interactive || die "Not a Nook GlowLight 4 Plus; stopping."
     ask "Continue anyway?" n || die "Stopped; nothing was changed."
 fi
 installed() { shell pm list packages "$1" | grep -qx "package:$1"; }
-# Prints the installed plugin's version from its _meta.lua, or nothing if it is not there.
+# Prints the installed plugin's version from its _meta.lua, "unknown" if its folder is there
+# without a readable version, or nothing if it is not installed.
 plugin_version() {
-    shell "cat $PLUGINS/$1/_meta.lua 2>/dev/null" | sed -n 's/.*version *= *"\([^"]*\)".*/\1/p' | head -n 1
+    v=$(shell "cat $PLUGINS/$1/_meta.lua 2>/dev/null" \
+        | sed -e 's/^/ /' -n -e 's/.*[^[:alnum:]_]version *= *"\([^"]*\)".*/\1/p' | head -n 1)
+    if [ -z "$v" ] && [ -n "$(shell "[ -d $PLUGINS/$1 ] && echo yes")" ]; then v=unknown; fi
+    printf '%s\n' "$v"
 }
 koreader=false
 installed "$KOREADER_PKG" && koreader=true
@@ -192,7 +199,9 @@ if [ -n "$launcher_apk" ]; then
     fi
 fi
 say ""
-if [ -n "$appstore_have" ]; then
+if [ "$appstore_have" = unknown ]; then
+    say "App Store is already installed (it updates itself)."
+elif [ -n "$appstore_have" ]; then
     say "App Store $appstore_have is already installed (it updates itself)."
 else
     say "App Store: browse and install community KOReader plugins and patches (from GitHub)."
@@ -200,10 +209,14 @@ else
 fi
 say ""
 if [ -n "$zenfm_plugin_have" ] && [ -n "$zenfm_app_have" ]; then
-    say "ZenFM $zenfm_plugin_have is already installed (it updates itself)."
+    if [ "$zenfm_plugin_have" = unknown ]; then say "ZenFM is already installed (it updates itself)."
+    else say "ZenFM $zenfm_plugin_have is already installed (it updates itself)."; fi
 elif [ -z "$zenfm_plugin_have" ] && [ -z "$zenfm_app_have" ]; then
     say "ZenFM: manage the Nook's files from your computer's web browser (from GitHub)."
     ask "Install ZenFM?" n && { zenfm=true; zenfm_plugin=true; zenfm_app=true; }
+elif [ "$zenfm_plugin_have" = unknown ]; then
+    say "ZenFM is partly installed: its plugin is there, but the companion app is missing and the"
+    say "plugin's version could not be read. Install the app from github.com/$ZENFM_REPO by hand."
 elif [ -n "$zenfm_plugin_have" ]; then
     say "ZenFM is partly installed: plugin $zenfm_plugin_have is there, but its companion app is missing."
     say "The companion app from the same release ($zenfm_plugin_have) can be added; the plugin is left as it is."
