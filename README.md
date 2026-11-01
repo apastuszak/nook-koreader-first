@@ -87,7 +87,7 @@ It always installs the helper and the plugin, gives them their permissions, and 
 |---|---|---|
 | Install KOReader? (the [exact build](#requirements) this project is tested with) | KOReader is not installed | Yes |
 | Set up the [page buttons and frontlight](#page-buttons-and-frontlight)? | always | Yes |
-| Install the reading fonts? ([Atkinson Hyperlegible Next](https://github.com/googlefonts/atkinson-hyperlegible-next), [Lexend](https://github.com/googlefonts/lexend), [Literata](https://github.com/googlefonts/literata) and [Bitter](https://github.com/solmatas/BitterPro), all with italics) | KOReader is, or will be, installed | Yes |
+| Install the reading fonts? ([Atkinson Hyperlegible Next](https://github.com/googlefonts/atkinson-hyperlegible-next), [Lexend](https://github.com/octaviopardo/lexend/tree/Lexend-a), [Literata](https://github.com/googlefonts/literata) and [Bitter](https://github.com/solmatas/BitterPro), all with italics) | KOReader is, or will be, installed | Yes |
 | Install [KOReader Home](#optional-koreader-home-launcher)? | KOReader is, or will be, installed | No |
 | Make KOReader Home the default Home app now? | you said yes to KOReader Home | No |
 | Install [App Store](https://github.com/omer-faruq/appstore.koplugin)? (browse and install community KOReader plugins and patches) | it is not installed | No |

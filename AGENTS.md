@@ -4,7 +4,7 @@ This file is the single source of project guidance for all coding agents (Codex,
 
 ## Objective
 
-**Project name: "KOReader-first Nook"** (decided 2026-10-31): make the Nook a KOReader-first device. The GitHub repo is to be the **private** `apastuszak/nook-koreader-first` (not created yet); the local folder keeps its old name, `nook-koreader-android-launcher`. Commits keep the user's gmail address (it is already on their other repos). The helper (`dev.nookwifi.helper`, "Nook Wi-Fi Helper") and plugin (`nookwifi.koplugin`, "Nook Wi-Fi") keep their names: renaming the package would break updates and drop its permission grants.
+**Project name: "KOReader-first Nook"** (decided 2026-10-31): make the Nook a KOReader-first device. The GitHub repo is `apastuszak/nook-koreader-first` (created private; checked for secrets and personal data before going public, 2026-11-01); the local folder keeps its old name, `nook-koreader-android-launcher`. Commits keep the user's gmail address (it is already on their other repos). The helper (`dev.nookwifi.helper`, "Nook Wi-Fi Helper") and plugin (`nookwifi.koplugin`, "Nook Wi-Fi") keep their names: renaming the package would break updates and drop its permission grants.
 
 
 Build a KOReader plugin that lets the user turn Wi-Fi on and off on demand and join Wi-Fi networks from within KOReader on a Barnes & Noble Nook GlowLight 4 Plus.
