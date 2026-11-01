@@ -27,6 +27,10 @@ $Patches = '/sdcard/koreader/patches'
 $KoreaderPkg = 'org.koreader.launcher'
 $KoreaderDir = '/sdcard/koreader'
 $BooksDir = '/sdcard/NOOK'
+# Where each book is going ("<path in koreader><TAB><path in NOOK>"), written before the
+# move, so a retry after an interrupted run puts leftover highlights beside the right book.
+# A top-level .log, so it is never moved, and it is deleted with the koreader folder.
+$Journal = "$KoreaderDir/uninstall-moves.log"
 $ZenfmPkg = 'org.zenlabs.zenfm'
 $Settings = '/sdcard/koreader/settings'
 $Plugin = 'nookwifi.koplugin'
@@ -247,6 +251,9 @@ if ($koreader -or $koreaderDirThere) {
             if ($null -eq $books) { Fail "Could not list the files in $KoreaderDir. Nothing was changed." }
             $orphans = Get-OrphanSdrs $books
             if ($null -eq $orphans) { Fail "Could not list the files in $KoreaderDir. Nothing was changed." }
+            if (@($books + $orphans | Where-Object { $_.Contains("`t") }).Count -gt 0) {
+                Fail "A file or folder name in $KoreaderDir contains a tab. Rename or move it by hand first. Nothing was changed."
+            }
         }
     }
 }
@@ -399,6 +406,10 @@ if ($books.Count -gt 0) {
             $n++
             $dst = "$BooksDir/$(Remove-Extension $b) ($n)$($b.Substring((Remove-Extension $b).Length))"
         }
+        # Record the destination first: if the connection drops after the move, a retry
+        # still knows where the book went.
+        $recorded = Invoke-Adb shell "printf '%s\t%s\n' $(Quote $b) $(Quote $dst.Substring($BooksDir.Length + 1)) >> $(Quote $Journal) && echo OK"
+        if ($recorded -ne 'OK') { Fail "Could not record the move of $b in $Journal. Nothing was removed; files moved so far are in $BooksDir." }
         Move-OnNook $src $dst
         # The book's highlights, notes and reading position (Title.epub -> Title.sdr). If
         # they cannot follow, move the book back: a retry then finds the pair together and
@@ -416,12 +427,24 @@ if ($books.Count -gt 0) {
 }
 if ($orphans.Count -gt 0) {
     Step "Moving highlights folders to $BooksDir"
+    # Earlier runs' records: fail unless the record could be read (or there is none).
+    $read = @((Invoke-Adb shell "( [ ! -e $(Quote $Journal) ] || cat $(Quote $Journal) ) && echo END:OK") -split "`n" | ForEach-Object { $_.TrimEnd() })
+    if ($read[-1] -ne 'END:OK') { Fail "Could not read $Journal. Nothing was removed; files moved so far are in $BooksDir." }
+    $records = @($read | Select-Object -SkipLast 1 | Where-Object { $_.Contains("`t") })
     foreach ($d in $orphans) {
-        $dst = "$BooksDir/$d"
+        # Beside the book it belongs to, if an earlier run recorded where that book went
+        # (it may have been renamed " (n)"); otherwise at the same path.
+        $went = $null
+        foreach ($r in $records) {
+            $recordedFrom, $recordedTo = $r -split "`t", 2
+            if ($recordedTo -and "$(Remove-Extension $recordedFrom).sdr" -ceq $d) { $went = $recordedTo }
+        }
+        $base = if ($went) { Remove-Extension $went } else { $d.Substring(0, $d.Length - 4) }
+        $dst = "$BooksDir/$base.sdr"
         $n = 1
         while (Test-There $dst) {
             $n++
-            $dst = "$BooksDir/$($d.Substring(0, $d.Length - 4)) ($n).sdr"
+            $dst = "$BooksDir/$base ($n).sdr"
         }
         Move-OnNook "$KoreaderDir/$d" $dst
         Say "Moved $d."

@@ -22,6 +22,11 @@ PATCHES=/sdcard/koreader/patches
 KOREADER_PKG=org.koreader.launcher
 KOREADER_DIR=/sdcard/koreader
 BOOKS_DIR=/sdcard/NOOK
+# Where each book is going ("<path in koreader><TAB><path in NOOK>"), written before the
+# move, so a retry after an interrupted run puts leftover highlights beside the right book.
+# A top-level .log, so it is never moved, and it is deleted with the koreader folder.
+JOURNAL=$KOREADER_DIR/uninstall-moves.log
+TAB=$(printf '\t')
 ZENFM_PKG=org.zenlabs.zenfm
 SETTINGS=/sdcard/koreader/settings
 PLUGIN=nookwifi.koplugin
@@ -202,6 +207,9 @@ if $koreader || $koreader_dir; then
         if $koreader_dir; then
             books=$(list_books) || die "Could not list the files in $KOREADER_DIR. Nothing was changed."
             orphans=$(list_orphan_sdrs) || die "Could not list the files in $KOREADER_DIR. Nothing was changed."
+            case "$books$orphans" in
+                *"$TAB"*) die "A file or folder name in $KOREADER_DIR contains a tab. Rename or move it by hand first. Nothing was changed." ;;
+            esac
         fi
     fi
 fi
@@ -350,6 +358,10 @@ if [ -n "$books" ]; then
             n=$((n + 1))
             dst="$BOOKS_DIR/$(stem "$b") ($n)$ext"
         done
+        # Record the destination first: if the connection drops after the move, a retry
+        # still knows where the book went.
+        [ "$(shell "printf '%s\\t%s\\n' $(q "$b") $(q "${dst#"$BOOKS_DIR"/}") >> $(q "$JOURNAL") && echo OK")" = OK ] \
+            || die "Could not record the move of $b in $JOURNAL. Nothing was removed; files moved so far are in $BOOKS_DIR."
         move "$src" "$dst"
         # The book's highlights, notes and reading position (Title.epub -> Title.sdr). If
         # they cannot follow, move the book back: a retry then finds the pair together and
@@ -363,12 +375,23 @@ if [ -n "$books" ]; then
 fi
 if [ -n "$orphans" ]; then
     step "Moving highlights folders to $BOOKS_DIR"
+    # Earlier runs' records: fail unless the record could be read (or there is none).
+    journal=$(shell "( [ ! -e $(q "$JOURNAL") ] || cat $(q "$JOURNAL") ) && echo END:OK")
+    [ "$(printf '%s\n' "$journal" | tail -n 1)" = END:OK ] \
+        || die "Could not read $JOURNAL. Nothing was removed; files moved so far are in $BOOKS_DIR."
+    journal=$(printf '%s\n' "$journal" | sed '$d')
     printf '%s\n' "$orphans" | while IFS= read -r d; do
-        dst=$BOOKS_DIR/$d
+        # Beside the book it belongs to, if an earlier run recorded where that book went
+        # (it may have been renamed " (n)"); otherwise at the same path.
+        went=$(printf '%s\n' "$journal" | while IFS="$TAB" read -r from to; do
+            if [ -n "$to" ] && [ "$(stem "$from").sdr" = "$d" ]; then printf '%s\n' "$to"; fi
+        done | tail -n 1)
+        if [ -n "$went" ]; then base=$(stem "$went"); else base=${d%.sdr}; fi
+        dst="$BOOKS_DIR/$base.sdr"
         n=1
         while there "$dst"; do
             n=$((n + 1))
-            dst="$BOOKS_DIR/${d%.sdr} ($n).sdr"
+            dst="$BOOKS_DIR/$base ($n).sdr"
         done
         move "$KOREADER_DIR/$d" "$dst"
         say "Moved $d."
