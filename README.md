@@ -4,7 +4,7 @@ Make a **Barnes & Noble Nook GlowLight 4 Plus** a KOReader-first e-reader: every
 
 What you get:
 
-- **Wi-Fi**: turn it on and off, switch between saved networks, and join new ones.
+- **Wi-Fi**: turn it on and off, switch between saved networks, join new ones, and have it turn off by itself when unused.
 - **Bluetooth page-turner remotes**: Bluetooth on/off, pairing, and keeping Bluetooth on only while you read.
 - **Nook power off after sleeping**: let the Nook switch itself off after sleeping for a while.
 - **Open Nook home**: jump to the Nook's own home screen when you do need it (the B&N store, the Nook's settings), and press Home to come back.
@@ -88,6 +88,7 @@ It always installs the helper and the plugin, gives them their permissions, and 
 | Install KOReader? (the [exact build](#requirements) this project is tested with) | KOReader is not installed | Yes |
 | Set up the [page buttons and frontlight](#page-buttons-and-frontlight)? | always | Yes |
 | Install the reading fonts? ([Atkinson Hyperlegible Next](https://github.com/googlefonts/atkinson-hyperlegible-next), [Lexend](https://github.com/octaviopardo/lexend/tree/Lexend-a), [Literata](https://github.com/googlefonts/literata) and [Bitter](https://github.com/solmatas/BitterPro), all with italics) | KOReader is, or will be, installed | Yes |
+| Copy the user guide to the Nook? (the [user guide](docs/user-guide.md) as an e-book, in the `NOOK` folder) | always | Yes |
 | Install [KOReader Home](#optional-koreader-home-launcher)? | KOReader is, or will be, installed | No |
 | Make KOReader Home the default Home app now? | you said yes to KOReader Home | No |
 | Install [App Store](https://github.com/omer-faruq/appstore.koplugin)? (browse and install community KOReader plugins and patches) | it is not installed | No |
@@ -140,7 +141,11 @@ Good to know:
    adb shell mkdir -p /sdcard/koreader/fonts
    adb push fonts/AtkinsonHyperlegibleNext fonts/Lexend fonts/Literata fonts/Bitter /sdcard/koreader/fonts/
    ```
-7. **Exit KOReader and open it again.** On Android, KOReader has no Restart option, and it only loads plugins, patches and fonts when it starts.
+7. **User guide (optional).** Copy `KOReader-first-Nook-Guide.epub` into the Nook's `NOOK` folder. Over USB:
+   ```sh
+   adb push KOReader-first-Nook-Guide.epub /sdcard/NOOK/
+   ```
+8. **Exit KOReader and open it again.** On Android, KOReader has no Restart option, and it only loads plugins, patches and fonts when it starts.
 
 ## Use
 
@@ -156,6 +161,7 @@ Everything is under **Settings → Network**.
     - open networks join with no password
     - WPA/WPA2 networks ask for a password
   - **Saved networks**: switch to another saved network.
+  - **Turn Wi-Fi off when unused**: never (the default), or after 5, 10, 20, 30 or 60 minutes. KOReader leaves Wi-Fi on after syncing, OPDS and the like; this turns it off once the Nook has sent almost nothing over it for that long (background traffic alone does not keep it on). With **Action when Wi-Fi is off → turn on**, KOReader turns it back on when something needs it. A connection that stays open without sending anything (for example a file-transfer page left open on a computer) counts as unused too. The Nook also turns Wi-Fi off while it sleeps.
   - **Open Android Wi-Fi settings**: the stock settings screen, for anything the plugin cannot do.
   - **Helper info**: shows the helper and plugin versions.
 
@@ -282,6 +288,7 @@ Networks you joined, and remotes you paired, stay saved in Android. If you set *
 | "Nook Wi-Fi Helper is not installed." | Install the helper APK. |
 | Network names show as "(name hidden)", or scanning asks for permission | Do install step 3 (allow location access). |
 | "…different versions. Update both." | Install the helper and plugin from the same release. |
+| Wi-Fi turns off by itself | **Nook Wi-Fi → Turn Wi-Fi off when unused** is set; choose **Never** to keep it on. The Nook also turns Wi-Fi off while it sleeps. |
 | "Wrong password for …" on a saved network | Forget the network in Android Wi-Fi settings, then join it again from **Scan for networks…**. |
 | "allow Nook Wi-Fi Helper to modify system settings" | Tap **Open**, turn the switch on, go back to KOReader, and choose again. Or over USB: `adb shell appops set dev.nookwifi.helper WRITE_SETTINGS allow`. |
 | "Could not connect to X. Connected to Y instead." | Android could not reach X (out of range or rejected) and went back to another saved network. |

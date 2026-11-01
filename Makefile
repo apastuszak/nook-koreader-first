@@ -112,7 +112,7 @@ $(GUIDE_EPUB): docs/user-guide.md docs/epub.css $(wildcard docs/images/*.png)
 	@mkdir -p $(dir $@)
 	cd docs && pandoc user-guide.md --from markdown --shift-heading-level-by=-1 --toc --toc-depth=2 \
 		--split-level=1 --css epub.css --metadata lang=en --metadata author="Andy Pastuszak" \
-		--resource-path=. -o $(abspath $@)
+		--resource-path=. -o "$(CURDIR)/$@"
 
 # Copies the guide to the Nook's NOOK folder, where KOReader's file browser finds it.
 install-guide: $(GUIDE_EPUB)

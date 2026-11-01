@@ -43,7 +43,7 @@ package.preload["ui/uimanager"] = function()
         end,
         scheduleIn = function(_, delay, fn, ...)
             local args = { ... }
-            table.insert(queue, { delay = delay, orig = fn, fn = function() fn(unpack(args)) end })
+            table.insert(queue, { delay = delay, due = now + delay, orig = fn, fn = function() fn(unpack(args)) end })
         end,
         unschedule = function(_, fn)
             for i = #queue, 1, -1 do
@@ -138,6 +138,9 @@ local function resetSettings()
     _G.G_reader_settings = {
         isTrue = function(_, key) return settings_store[key] == true end,
         flipNilOrFalse = function(_, key) settings_store[key] = not settings_store[key] or nil end,
+        readSetting = function(_, key) return settings_store[key] end,
+        saveSetting = function(_, key, value) settings_store[key] = value end,
+        delSetting = function(_, key) settings_store[key] = nil end,
     }
 end
 resetSettings()
@@ -490,6 +493,7 @@ end
 
 local passed, failed = 0, 0
 local NookWifi -- loaded below; test() resets its shared Bluetooth state
+local Idle -- loaded below; test() stops its timer
 local function test(name, fn)
     resetWifi()
     resetBt()
@@ -499,6 +503,8 @@ local function test(name, fn)
         shared.pending_off, shared.off_for_sleep = nil, false
     end
     now, queue, shown, closed, events, stock_calls = 0, {}, {}, {}, {}, {}
+    if Idle then Idle.stop() end
+    NM.pending_connectivity_check = nil
     local ok, err = pcall(fn)
     if ok then
         passed = passed + 1
@@ -534,6 +540,14 @@ local function renderMenu(items)
 end
 
 NookWifi = dofile(PLUGIN_DIR .. "/main.lua")
+Idle = require("nookwifiidle")
+-- The wlan0 sent-packet counter: there only while Wi-Fi is on (like sysfs),
+-- counting wifi.tx_per_min from wifi.tx_base. Tests can also set wifi.tx.
+Idle.readTx = function()
+    if not wifi.enabled then return nil end
+    if wifi.tx then return wifi.tx end
+    return (wifi.tx_base or 100) + math.floor(now / 60 * (wifi.tx_per_min or 2))
+end
 local Network = require("nookwifinetwork")
 local function newPlugin()
     local menu_items = {}
@@ -1855,6 +1869,172 @@ test("nook home: without the helper it says to install it", function()
     local plugin = newHomePlugin()
     plugin:openNookHome()
     eq(lastMessage(), "Nook Wi-Fi Helper is not installed.", "message")
+end)
+
+-- Idle turn-off ------------------------------------------------------------
+
+-- Runs scheduled jobs in order of due time until the fake clock reaches
+-- `seconds` from now (the idle check reschedules itself forever, so
+-- runScheduled would never settle).
+local function runFor(seconds)
+    local target = now + seconds
+    for _ = 1, 10000 do
+        local next_i
+        for i, job in ipairs(queue) do
+            if not next_i or job.due < queue[next_i].due then next_i = i end
+        end
+        if not next_i or queue[next_i].due > target then
+            now = target
+            return
+        end
+        local job = table.remove(queue, next_i)
+        now = math.max(now, job.due)
+        job.fn()
+    end
+    error("runFor did not reach its target")
+end
+local function idleItem(items)
+    for _, item in ipairs(items) do
+        local text = item.text_func and item.text_func() or item.text
+        if text:find("^Turn Wi%-Fi off when unused") then return item, text end
+    end
+    error("no idle item")
+end
+
+test("idle: the menu shows never by default and saves a choice", function()
+    local _, items = newPlugin()
+    local item, text = idleItem(items)
+    eq(text, "Turn Wi-Fi off when unused: never", "default")
+    eq(#queue, 0, "a check is scheduled while set to never")
+    local sub = item.sub_item_table_func()
+    renderMenu(sub)
+    eq(sub[2].text, "5 minutes", "first choice")
+    eq(sub[3].text, "10 minutes", "choice")
+    sub[3].callback()
+    eq(settings_store.nookwifi_idle_off_minutes, 10, "saved")
+    eq(select(2, idleItem(items)), "Turn Wi-Fi off when unused: after 10 minutes", "after choosing")
+    assert(sub[3].checked_func(), "10 minutes not checked")
+    sub[1].callback()
+    eq(settings_store.nookwifi_idle_off_minutes, nil, "never clears the setting")
+    eq(#queue, 0, "a check is still scheduled after choosing never")
+end)
+
+test("idle: background traffic alone turns Wi-Fi off after the chosen time", function()
+    settings_store.nookwifi_idle_off_minutes = 10
+    newPlugin()
+    wifi.tx_per_min = 3 -- above the Nook's measured idle rate, below the limit
+    runFor(9 * 60 + 30)
+    eq(wifi.enabled, true, "off too early")
+    runFor(3 * 60)
+    eq(wifi.enabled, false, "still on")
+    assert(has(events, "NetworkDisconnecting"), "NetworkDisconnecting not broadcast")
+    assert(has(events, "NetworkDisconnected"), "NetworkDisconnected not broadcast")
+    eq(#shown, 0, "showed something while the user was reading")
+end)
+
+test("idle: the shortest choice, 5 minutes, works the same way", function()
+    settings_store.nookwifi_idle_off_minutes = 5
+    newPlugin()
+    wifi.tx_per_min = 3
+    runFor(4 * 60 + 30)
+    eq(wifi.enabled, true, "off too early")
+    runFor(2 * 60)
+    eq(wifi.enabled, false, "still on")
+end)
+
+test("idle: steady use keeps Wi-Fi on", function()
+    settings_store.nookwifi_idle_off_minutes = 10
+    newPlugin()
+    wifi.tx_per_min = 50
+    runFor(60 * 60)
+    eq(wifi.enabled, true, "turned off while in use")
+end)
+
+test("idle: a burst of use starts the count again", function()
+    settings_store.nookwifi_idle_off_minutes = 10
+    newPlugin()
+    wifi.tx = 100
+    runFor(6 * 60)
+    wifi.tx = 400 -- a download
+    runFor(8 * 60)
+    eq(wifi.enabled, true, "turned off less than 10 minutes after the download")
+    runFor(4 * 60)
+    eq(wifi.enabled, false, "still on 10 minutes after the download")
+end)
+
+test("idle: with Wi-Fi off or its counter restarted, the count starts again", function()
+    settings_store.nookwifi_idle_off_minutes = 10
+    newPlugin()
+    wifi.tx = 500
+    runFor(8 * 60)
+    wifi.tx = 3 -- the Nook slept: wlan0 came back with a fresh counter
+    runFor(5 * 60)
+    eq(wifi.enabled, true, "compared counters across a restart")
+    wifi.enabled = false
+    runFor(15 * 60)
+    eq(#events, 0, "acted while Wi-Fi was off")
+    wifi.enabled = true
+    runFor(9 * 60)
+    eq(wifi.enabled, true, "counted time while Wi-Fi was off")
+    runFor(2 * 60)
+    eq(wifi.enabled, false, "still on")
+end)
+
+test("idle: a connection or a Wi-Fi operation starts the count again", function()
+    settings_store.nookwifi_idle_off_minutes = 10
+    local plugin = newPlugin()
+    wifi.tx = 100
+    runFor(8 * 60)
+    plugin:onNetworkConnected()
+    runFor(8 * 60)
+    eq(wifi.enabled, true, "ignored NetworkConnected")
+    plugin:onResume()
+    runFor(8 * 60)
+    eq(wifi.enabled, true, "ignored a wake-up")
+    plugin:beginOperation("…")
+    plugin.busy = false
+    runFor(8 * 60)
+    eq(wifi.enabled, true, "ignored a Wi-Fi operation")
+    runFor(3 * 60)
+    eq(wifi.enabled, false, "still on")
+end)
+
+test("idle: never turns Wi-Fi off while KOReader is connecting", function()
+    settings_store.nookwifi_idle_off_minutes = 10
+    newPlugin()
+    wifi.tx = 100
+    NM.pending_connectivity_check = true
+    runFor(30 * 60)
+    eq(wifi.enabled, true, "turned off during a connection attempt")
+end)
+
+test("idle: the checks stop once the setting is never", function()
+    settings_store.nookwifi_idle_off_minutes = 10
+    newPlugin()
+    runFor(3 * 60)
+    settings_store.nookwifi_idle_off_minutes = nil -- e.g. changed in the settings file
+    runFor(2 * 60)
+    eq(#queue, 0, "still checking")
+end)
+
+test("idle: a refused turn-off is only logged", function()
+    settings_store.nookwifi_idle_off_minutes = 10
+    newPlugin()
+    wifi.tx = 100
+    wifi.set_enabled_rejected = true
+    runFor(15 * 60)
+    eq(#events, 0, "announced a disconnect that did not happen")
+    eq(#shown, 0, "showed something")
+    eq(#stock_calls, 0, "fell back to stock behavior (Android settings)")
+end)
+
+test("idle: Wi-Fi that does not go off is not announced as off", function()
+    settings_store.nookwifi_idle_off_minutes = 10
+    newPlugin()
+    wifi.tx = 100
+    wifi.ignore_off = true
+    runFor(12 * 60)
+    eq(has(events, "NetworkDisconnected"), false, "NetworkDisconnected broadcast while still on")
 end)
 
 print(string.format("\n%d passed, %d failed", passed, failed))

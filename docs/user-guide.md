@@ -72,6 +72,7 @@ Everything about Wi-Fi is in the **Settings** tab, under **Network**.
 - **Reconnect**: connects to the best saved network, turning Wi-Fi on first if needed.
 - **Scan for networks…**: lists the networks around you. Tap one to join it.
 - **Saved networks**: switch to another network you have used before.
+- **Turn Wi-Fi off when unused**: see below.
 - **Open Android Wi-Fi settings**: Android's own Wi-Fi screen, for anything the menu cannot do.
 - **Helper info**: the version numbers, useful when asking for help.
 
@@ -87,6 +88,16 @@ Everything about Wi-Fi is in the **Settings** tab, under **Network**.
 If the password is wrong, the Nook says so and forgets the network again, so you can simply try once more.
 
 Not supported: WPA3-only and Enterprise networks (the kind with a user name, often at work or school), WEP, and hidden networks. Use **Open Android Wi-Fi settings** for those.
+
+### Turning Wi-Fi off when you are done
+
+KOReader turns Wi-Fi on when it needs it (to sync, or to open a catalogue), but it does not turn it off again afterwards. To save battery, choose **Turn Wi-Fi off when unused** and pick a time: **5**, **10**, **20**, **30** or **60 minutes** (the default is **Never**). Once the Nook has used Wi-Fi for almost nothing for that long, it turns Wi-Fi off, without interrupting your reading.
+
+![Turn Wi-Fi off when unused](images/nook-wifi-idle.png)
+
+If **Action when Wi-Fi is off** (in **Settings**, **Network**) is set to **turn on**, KOReader turns Wi-Fi back on by itself the next time something needs it.
+
+The Nook also turns Wi-Fi off while it sleeps, and back on when it wakes if it was on before.
 
 **Tip:** the **Toggle Wi-Fi** gesture (Settings, Taps and gestures) turns Wi-Fi on and off without opening any menu.
 
@@ -204,6 +215,9 @@ Touch the Home button for about a second. If the recovery screen opens instead, 
 
 **Network names show as "(name hidden)", or scanning asks for permission.**
 Open **Nook Wi-Fi Helper** from the Nook's app list and tap **Allow location access**. Android only shows network names, and nearby Bluetooth remotes, to apps that have it. The helper never uses your location.
+
+**Wi-Fi turns off by itself.**
+**Turn Wi-Fi off when unused** (in **Nook Wi-Fi**) is set to a time; choose **Never** to keep Wi-Fi on. The Nook also turns Wi-Fi off while it sleeps.
 
 **"Wrong password" for a network you joined before.**
 Forget it in **Open Android Wi-Fi settings**, then join it again with **Scan for networks…**

@@ -5,9 +5,9 @@
 #
 # It asks what to install, then shows a summary before changing anything: KOReader (the
 # build this project is tested with, if KOReader is missing), the Nook page-button and
-# frontlight setup, four reading fonts, the KOReader Home launcher (and whether to make it
-# the default Home app), and the App Store and ZenFM plugins (downloaded from their GitHub
-# releases).
+# frontlight setup, four reading fonts, the user guide (an EPUB), the KOReader Home launcher
+# (and whether to make it the default Home app), and the App Store and ZenFM plugins
+# (downloaded from their GitHub releases).
 # Without a terminal to ask on, it takes the default answers and never changes the
 # default Home app. Run it with only the Nook connected, with USB debugging turned on.
 # It never uninstalls anything.
@@ -38,6 +38,10 @@ $EventMap = 'event_map.lua'
 $Fonts = '/sdcard/koreader/fonts'
 $FontsZip = 'fonts.zip'
 $FontFamilies = @('AtkinsonHyperlegibleNext', 'Lexend', 'Literata', 'Bitter')
+# The user guide as an e-book, copied to the folder the Nook shows over USB, where both
+# KOReader's file browser and the Nook's own library find it.
+$GuideEpub = 'KOReader-first-Nook-Guide.epub'
+$Books = '/sdcard/NOOK'
 # Third-party plugins, from their own GitHub releases (newest stable release). Neither
 # project publishes checksums; the files come over HTTPS from their release pages. An
 # installed copy is never replaced: both have their own updaters, and App Store keeps its
@@ -108,6 +112,7 @@ foreach ($f in $NookPatches + $EventMap) {
     if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { $nookFiles = $false }
 }
 $fontsFile = Test-Path -LiteralPath $FontsZip -PathType Leaf
+$guidePresent = Test-Path -LiteralPath $GuideEpub -PathType Leaf
 
 # adb: on the PATH, or in a platform-tools folder next to this script (where the download
 # below puts it).
@@ -228,6 +233,7 @@ Say 'Always: Nook Wi-Fi Helper and the Nook Wi-Fi KOReader plugin, with their pe
 $installKoreader = $false
 $nookSetup = $false
 $installFonts = $false
+$installGuide = $false
 $launcher = $false
 $setHome = $false
 $appstore = $false
@@ -257,6 +263,11 @@ if ($fontsFile -and ($koreader -or $installKoreader)) {
     Say "Reading fonts for KOReader's font menu: Atkinson Hyperlegible Next and Lexend (made for"
     Say 'legibility), and Literata and Bitter (book serifs). Free fonts under the SIL Open Font License.'
     $installFonts = Ask 'Install the reading fonts?' 'y'
+}
+if ($guidePresent) {
+    Say ''
+    Say "User guide: how to use everything this installs, as an e-book in the Nook's NOOK folder."
+    $installGuide = Ask 'Copy the user guide to the Nook?' 'y'
 }
 if ($launcherApk) {
     Say ''
@@ -311,6 +322,7 @@ Say '- Nook Wi-Fi Helper and the Nook Wi-Fi plugin, with their permissions'
 if ($koreader -or $installKoreader) { Say "- KOReader's permissions for the frontlight and its files" }
 if ($nookSetup) { Say '- Page buttons and frontlight setup' }
 if ($installFonts) { Say '- Reading fonts: Atkinson Hyperlegible Next, Lexend, Literata and Bitter' }
+if ($installGuide) { Say "- User guide ($Books/$GuideEpub)" }
 if ($launcher) {
     if ($setHome) { Say '- KOReader Home, as the default Home app' } else { Say '- KOReader Home (not the default Home app)' }
 }
@@ -332,6 +344,7 @@ $files = @($helperApk, $pluginZip)
 if ($installKoreader) { $files += $koreaderApk }
 if ($nookSetup) { $files += $NookPatches + $EventMap }
 if ($installFonts) { $files += $FontsZip }
+if ($installGuide) { $files += $GuideEpub }
 if ($launcher) { $files += @($launcherApk, $Patch) }
 if ($null -ne $sums) {
     foreach ($f in $files) { Test-Sum $f }
@@ -448,6 +461,13 @@ try {
         }
     }
 
+    if ($installGuide) {
+        Step 'Copying the user guide'
+        Invoke-AdbChecked 'Could not create the NOOK folder.' shell mkdir -p $Books | Out-Null
+        Invoke-AdbChecked "Could not copy $GuideEpub to the Nook." push $GuideEpub "$Books/" | Out-Null
+        Say "Guide copied to $Books/$GuideEpub."
+    }
+
     if ($launcher) {
         Step 'Installing the KOReader Home launcher'
         Install-Apk $launcherApk 'KOReader Home launcher' $LauncherPkg
@@ -547,6 +567,7 @@ try {
 Step 'Done'
 Say 'If KOReader is open, exit it and open it again: it loads plugins and patches only when it starts.'
 Say 'Then look for Settings -> Network -> Nook Wi-Fi.'
+if ($installGuide) { Say "The user guide is in the NOOK folder: $GuideEpub." }
 if ($setHome) {
     Say ''
     Say 'To make another launcher the default again, list them with'

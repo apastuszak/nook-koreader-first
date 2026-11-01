@@ -16,6 +16,7 @@ local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local logger = require("logger")
 local time = require("ui/time")
 local _ = require("gettext")
+local N_ = _.ngettext
 local T = require("ffi/util").template
 
 if not Device:isAndroid() then
@@ -24,6 +25,7 @@ end
 
 local Helper = require("nookwifihelper")
 local Network = require("nookwifinetwork")
+local Idle = require("nookwifiidle")
 
 local POLL_INTERVAL_S = 0.5
 local STATE_TIMEOUT_S = 20
@@ -75,6 +77,7 @@ local NookWifi = WidgetContainer:extend{
 
 function NookWifi:init()
     Network.install()
+    Idle.start()
     self:registerBluetoothActions()
     self:registerNookHomeActions()
     self.ui.menu:registerToMainMenu(self)
@@ -114,6 +117,49 @@ require("nookbluetooth")(NookWifi, errorText)
 require("nookpower")(NookWifi, errorText)
 -- Opening the stock Nook home screen (Tools → Open Nook home, and a gesture action).
 require("nookhome")(NookWifi, errorText)
+
+-- Any connection KOReader announces, and any wake-up, starts the idle count again.
+function NookWifi:onNetworkConnected()
+    Idle.reset()
+end
+
+-- Returns nothing: a true value would stop the event reaching other widgets.
+local bluetoothOnResume = NookWifi.onResume
+function NookWifi:onResume()
+    Idle.reset()
+    bluetoothOnResume(self)
+end
+
+local function idleText(minutes)
+    if minutes == 0 then return _("never") end
+    return T(N_("after 1 minute", "after %1 minutes", minutes), minutes)
+end
+
+function NookWifi:idleMenu()
+    local items = {}
+    for __, minutes in ipairs(Idle.CHOICES) do
+        table.insert(items, {
+            text = minutes == 0 and _("Never") or T(N_("1 minute", "%1 minutes", minutes), minutes),
+            radio = true,
+            checked_func = function() return Idle.minutes() == minutes end,
+            callback = function() Idle.setMinutes(minutes) end,
+        })
+    end
+    items[#items].separator = true
+    table.insert(items, {
+        text = _("About this setting"),
+        keep_menu_open = true,
+        callback = function()
+            UIManager:show(InfoMessage:new{
+                text = _("Turns Wi-Fi off once the Nook has sent almost nothing over it for this long, " ..
+                    "to save battery. KOReader turns it back on when something needs it, " ..
+                    "if \"Action when Wi-Fi is off\" is set to \"turn on\".\n\n" ..
+                    "The Nook also turns Wi-Fi off while it sleeps."),
+            })
+        end,
+    })
+    return items
+end
 
 -- Returns the helper's getState reply, or nil and a message.
 function NookWifi:getState(fresh)
@@ -207,6 +253,12 @@ function NookWifi:addToMainMenu(menu_items)
                 text = _("Saved networks"),
                 enabled_func = available,
                 sub_item_table_func = function() return self:savedNetworksMenu() end,
+            },
+            {
+                text_func = function()
+                    return T(_("Turn Wi-Fi off when unused: %1"), idleText(Idle.minutes()))
+                end,
+                sub_item_table_func = function() return self:idleMenu() end,
                 separator = true,
             },
             {
@@ -328,6 +380,7 @@ end
 function NookWifi:beginOperation(progress_text, touchmenu_instance)
     self.busy = true
     self.announced_connecting = false
+    Idle.reset()
     local progress = InfoMessage:new{ text = progress_text }
     UIManager:show(progress)
     return function(text, event_name)

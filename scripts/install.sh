@@ -6,9 +6,9 @@
 #
 # It asks what to install, then shows a summary before changing anything: KOReader (the
 # build this project is tested with, if KOReader is missing), the Nook page-button and
-# frontlight setup, four reading fonts, the KOReader Home launcher (and whether to make it
-# the default Home app), and the App Store and ZenFM plugins (downloaded from their GitHub
-# releases).
+# frontlight setup, four reading fonts, the user guide (an EPUB), the KOReader Home launcher
+# (and whether to make it the default Home app), and the App Store and ZenFM plugins
+# (downloaded from their GitHub releases).
 # Without a terminal to ask on, it takes the default answers and never changes the
 # default Home app. Run it with only the Nook connected, with USB debugging turned on.
 # It never uninstalls anything.
@@ -33,6 +33,10 @@ EVENT_MAP=event_map.lua
 FONTS=/sdcard/koreader/fonts
 FONTS_ZIP=fonts.zip
 FONT_FAMILIES="AtkinsonHyperlegibleNext Lexend Literata Bitter"
+# The user guide as an e-book, copied to the folder the Nook shows over USB, where both
+# KOReader's file browser and the Nook's own library find it.
+GUIDE=KOReader-first-Nook-Guide.epub
+BOOKS=/sdcard/NOOK
 # Third-party plugins, from their own GitHub releases (newest stable release). Neither
 # project publishes checksums; the files come over HTTPS from their release pages. An
 # installed copy is never replaced: both have their own updaters, and App Store keeps its
@@ -104,6 +108,8 @@ nook_files=true
 for f in $NOOK_PATCHES $EVENT_MAP; do [ -e "$f" ] || nook_files=false; done
 fonts_file=false
 [ -e "$FONTS_ZIP" ] && fonts_file=true
+guide_file=false
+[ -e "$GUIDE" ] && guide_file=true
 
 command -v adb >/dev/null 2>&1 || die "adb not found. Install Android platform-tools (see the README) and try again."
 command -v unzip >/dev/null 2>&1 || die "unzip not found."
@@ -168,6 +174,7 @@ say "Always: Nook Wi-Fi Helper and the Nook Wi-Fi KOReader plugin, with their pe
 install_koreader=false
 nook_setup=false
 fonts=false
+guide=false
 launcher=false
 set_home=false
 appstore=false
@@ -197,6 +204,11 @@ if $fonts_file && { $koreader || $install_koreader; }; then
     say "Reading fonts for KOReader's font menu: Atkinson Hyperlegible Next and Lexend (made for"
     say "legibility), and Literata and Bitter (book serifs). Free fonts under the SIL Open Font License."
     ask "Install the reading fonts?" y && fonts=true
+fi
+if $guide_file; then
+    say ""
+    say "User guide: how to use everything this installs, as an e-book in the Nook's NOOK folder."
+    ask "Copy the user guide to the Nook?" y && guide=true
 fi
 if [ -n "$launcher_apk" ]; then
     say ""
@@ -251,6 +263,7 @@ say "- Nook Wi-Fi Helper and the Nook Wi-Fi plugin, with their permissions"
 if $koreader || $install_koreader; then say "- KOReader's permissions for the frontlight and its files"; fi
 $nook_setup && say "- Page buttons and frontlight setup"
 $fonts && say "- Reading fonts: Atkinson Hyperlegible Next, Lexend, Literata and Bitter"
+$guide && say "- User guide ($BOOKS/$GUIDE)"
 if $launcher; then
     if $set_home; then say "- KOReader Home, as the default Home app"; else say "- KOReader Home (not the default Home app)"; fi
 fi
@@ -271,6 +284,7 @@ files="$helper_apk $plugin_zip"
 $install_koreader && files="$files $koreader_apk"
 $nook_setup && files="$files $NOOK_PATCHES $EVENT_MAP"
 $fonts && files="$files $FONTS_ZIP"
+$guide && files="$files $GUIDE"
 $launcher && files="$files $launcher_apk $PATCH"
 if [ -n "$sum" ]; then
     for f in $files; do verify "$f"; done
@@ -381,6 +395,13 @@ if $fonts; then
     done
 fi
 
+if $guide; then
+    step "Copying the user guide"
+    adb shell mkdir -p "$BOOKS"
+    adb push "$GUIDE" "$BOOKS/" >/dev/null 2>&1 || die "Could not copy $GUIDE to the Nook."
+    say "Guide copied to $BOOKS/$GUIDE."
+fi
+
 if $launcher; then
     step "Installing the KOReader Home launcher"
     install_apk "$launcher_apk" "KOReader Home launcher" "$LAUNCHER_PKG"
@@ -464,6 +485,7 @@ fi
 step "Done"
 say "If KOReader is open, exit it and open it again: it loads plugins and patches only when it starts."
 say "Then look for Settings -> Network -> Nook Wi-Fi."
+$guide && say "The user guide is in the NOOK folder: $GUIDE."
 if $set_home; then
     say ""
     say "To make another launcher the default again, list them with"
