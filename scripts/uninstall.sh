@@ -29,7 +29,7 @@ HOME_PATCH=2-koreader-home.lua
 NOOK_PATCHES="2-nook-frontlight-widget.lua"
 EVENT_MAP=event_map.lua
 FONTS=/sdcard/koreader/fonts
-FONT_FAMILIES="AtkinsonHyperlegibleNext Lexend"
+FONT_FAMILIES="AtkinsonHyperlegibleNext Lexend Literata Bitter"
 
 usage() {
     sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
@@ -229,8 +229,8 @@ if ! $remove_koreader && { [ -n "$nook_patches" ] || [ "$event_map" = ours ]; };
 fi
 if ! $remove_koreader && [ -n "$fonts" ]; then
     say ""
-    say "Reading fonts: Atkinson Hyperlegible Next and Lexend. Books set to use them go back to"
-    say "KOReader's default font."
+    say "Reading fonts: Atkinson Hyperlegible Next, Lexend, Literata and Bitter. Books set to"
+    say "use them go back to KOReader's default font."
     ask "Remove the reading fonts?" n && remove_fonts=true
 fi
 if ! $remove_koreader && ! $remove_wifi && ! $remove_launcher && ! $remove_setup && ! $remove_fonts; then

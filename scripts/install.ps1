@@ -5,7 +5,7 @@
 #
 # It asks what to install, then shows a summary before changing anything: KOReader (the
 # build this project is tested with, if KOReader is missing), the Nook page-button and
-# frontlight setup, two reading fonts, the KOReader Home launcher (and whether to make it
+# frontlight setup, four reading fonts, the KOReader Home launcher (and whether to make it
 # the default Home app), and the App Store and ZenFM plugins (downloaded from their GitHub
 # releases).
 # Without a terminal to ask on, it takes the default answers and never changes the
@@ -37,7 +37,7 @@ $EventMap = 'event_map.lua'
 # into KOReader's user font folder.
 $Fonts = '/sdcard/koreader/fonts'
 $FontsZip = 'fonts.zip'
-$FontFamilies = @('AtkinsonHyperlegibleNext', 'Lexend')
+$FontFamilies = @('AtkinsonHyperlegibleNext', 'Lexend', 'Literata', 'Bitter')
 # Third-party plugins, from their own GitHub releases (newest stable release). Neither
 # project publishes checksums; the files come over HTTPS from their release pages. An
 # installed copy is never replaced: both have their own updaters, and App Store keeps its
@@ -254,8 +254,8 @@ if ($nookFiles) {
 }
 if ($fontsFile -and ($koreader -or $installKoreader)) {
     Say ''
-    Say "Reading fonts: Atkinson Hyperlegible Next and Lexend, made for legibility, in KOReader's"
-    Say 'font menu (free fonts under the SIL Open Font License).'
+    Say "Reading fonts for KOReader's font menu: Atkinson Hyperlegible Next and Lexend (made for"
+    Say 'legibility), and Literata and Bitter (book serifs). Free fonts under the SIL Open Font License.'
     $installFonts = Ask 'Install the reading fonts?' 'y'
 }
 if ($launcherApk) {
@@ -310,7 +310,7 @@ if ($installKoreader) { Say "- KOReader $version" }
 Say '- Nook Wi-Fi Helper and the Nook Wi-Fi plugin, with their permissions'
 if ($koreader -or $installKoreader) { Say "- KOReader's permissions for the frontlight and its files" }
 if ($nookSetup) { Say '- Page buttons and frontlight setup' }
-if ($installFonts) { Say '- Reading fonts: Atkinson Hyperlegible Next and Lexend' }
+if ($installFonts) { Say '- Reading fonts: Atkinson Hyperlegible Next, Lexend, Literata and Bitter' }
 if ($launcher) {
     if ($setHome) { Say '- KOReader Home, as the default Home app' } else { Say '- KOReader Home (not the default Home app)' }
 }

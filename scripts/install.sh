@@ -6,7 +6,7 @@
 #
 # It asks what to install, then shows a summary before changing anything: KOReader (the
 # build this project is tested with, if KOReader is missing), the Nook page-button and
-# frontlight setup, two reading fonts, the KOReader Home launcher (and whether to make it
+# frontlight setup, four reading fonts, the KOReader Home launcher (and whether to make it
 # the default Home app), and the App Store and ZenFM plugins (downloaded from their GitHub
 # releases).
 # Without a terminal to ask on, it takes the default answers and never changes the
@@ -32,7 +32,7 @@ EVENT_MAP=event_map.lua
 # into KOReader's user font folder.
 FONTS=/sdcard/koreader/fonts
 FONTS_ZIP=fonts.zip
-FONT_FAMILIES="AtkinsonHyperlegibleNext Lexend"
+FONT_FAMILIES="AtkinsonHyperlegibleNext Lexend Literata Bitter"
 # Third-party plugins, from their own GitHub releases (newest stable release). Neither
 # project publishes checksums; the files come over HTTPS from their release pages. An
 # installed copy is never replaced: both have their own updaters, and App Store keeps its
@@ -194,8 +194,8 @@ if $nook_files; then
 fi
 if $fonts_file && { $koreader || $install_koreader; }; then
     say ""
-    say "Reading fonts: Atkinson Hyperlegible Next and Lexend, made for legibility, in KOReader's"
-    say "font menu (free fonts under the SIL Open Font License)."
+    say "Reading fonts for KOReader's font menu: Atkinson Hyperlegible Next and Lexend (made for"
+    say "legibility), and Literata and Bitter (book serifs). Free fonts under the SIL Open Font License."
     ask "Install the reading fonts?" y && fonts=true
 fi
 if [ -n "$launcher_apk" ]; then
@@ -250,7 +250,7 @@ $install_koreader && say "- KOReader $version"
 say "- Nook Wi-Fi Helper and the Nook Wi-Fi plugin, with their permissions"
 if $koreader || $install_koreader; then say "- KOReader's permissions for the frontlight and its files"; fi
 $nook_setup && say "- Page buttons and frontlight setup"
-$fonts && say "- Reading fonts: Atkinson Hyperlegible Next and Lexend"
+$fonts && say "- Reading fonts: Atkinson Hyperlegible Next, Lexend, Literata and Bitter"
 if $launcher; then
     if $set_home; then say "- KOReader Home, as the default Home app"; else say "- KOReader Home (not the default Home app)"; fi
 fi

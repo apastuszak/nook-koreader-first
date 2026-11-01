@@ -27,7 +27,7 @@ PLUGIN_VERSION := $(shell sed -n 's/^local PLUGIN_VERSION = "\(.*\)"/\1/p' $(PLU
 APKSIGNER = $(ANDROID_HOME)/build-tools/$(shell ls $(ANDROID_HOME)/build-tools | sort -V | tail -1)/apksigner
 DIST := dist
 # Reading fonts shipped in dist/fonts.zip (folders under third_party/fonts).
-FONT_FAMILIES := AtkinsonHyperlegibleNext Lexend
+FONT_FAMILIES := AtkinsonHyperlegibleNext Lexend Literata Bitter
 # SHA-256 of the release signing certificate (~/.android/nookwifi-release.jks).
 # Every release must be signed with this key, or updates fail to install.
 RELEASE_CERT_SHA256 := 86f2c36fd0268087a23c5cd8b748720e97d476697fca0cc75eca0f2127ba2415

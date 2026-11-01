@@ -34,7 +34,7 @@ $HomePatch = '2-koreader-home.lua'
 $NookPatches = @('2-nook-frontlight-widget.lua')
 $EventMap = 'event_map.lua'
 $Fonts = '/sdcard/koreader/fonts'
-$FontFamilies = @('AtkinsonHyperlegibleNext', 'Lexend')
+$FontFamilies = @('AtkinsonHyperlegibleNext', 'Lexend', 'Literata', 'Bitter')
 
 function Show-Usage {
     Get-Content -LiteralPath $PSCommandPath -TotalCount 10 | ForEach-Object { $_ -replace '^# ?', '' }
@@ -277,8 +277,8 @@ if (-not $removeKoreader -and ($nookPatchesThere.Count -gt 0 -or $eventMapState 
 }
 if (-not $removeKoreader -and $fontsThere.Count -gt 0) {
     Say ''
-    Say 'Reading fonts: Atkinson Hyperlegible Next and Lexend. Books set to use them go back to'
-    Say "KOReader's default font."
+    Say 'Reading fonts: Atkinson Hyperlegible Next, Lexend, Literata and Bitter. Books set to'
+    Say "use them go back to KOReader's default font."
     $removeFonts = Ask 'Remove the reading fonts?' 'n'
 }
 if (-not $removeKoreader -and -not $removeWifi -and -not $removeLauncher -and -not $removeSetup -and -not $removeFonts) {

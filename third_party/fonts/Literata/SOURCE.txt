@@ -1,0 +1,6 @@
+Literata, installed by KOReader-first Nook.
+
+Source: https://github.com/googlefonts/literata
+Commit: 0c2761b727a1b3a7cffd313c37f0f5163dfc7a63 (fonts/ttf, the default optical size Literata-<Style>.ttf, static TTFs, unmodified;
+the Literata7pt, 36pt and 72pt optical sizes are not included)
+License: SIL Open Font License 1.1 (OFL.txt in this folder)
