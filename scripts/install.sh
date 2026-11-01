@@ -368,7 +368,13 @@ if $fonts; then
     adb shell mkdir -p "$FONTS"
     for f in $FONT_FAMILIES; do
         [ -f "$tmp/fonts/$f/OFL.txt" ] || die "$FONTS_ZIP does not contain $f."
-        # Replace the folder: it holds only this release's copy of the family.
+        # Replace only a folder this project installed (it carries our SOURCE.txt); a folder
+        # of the same name with your own fonts is left alone.
+        if [ -n "$(shell "[ -e $FONTS/$f ] && echo yes")" ] \
+            && [ -z "$(shell "grep -q 'KOReader-first Nook' $FONTS/$f/SOURCE.txt 2>/dev/null && echo yes")" ]; then
+            say "Kept your own $FONTS/$f; this release's $f was not installed."
+            continue
+        fi
         adb shell rm -rf "$FONTS/$f"
         adb push "$tmp/fonts/$f" "$FONTS/" >/dev/null 2>&1 || die "Could not copy $f to the Nook."
         say "Fonts copied to $FONTS/$f."

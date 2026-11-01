@@ -127,12 +127,12 @@ if (-not $adb) {
     }
     # Windows PowerShell 5.1 does not enable TLS 1.2 by default.
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-    $zip = Join-Path $PSScriptRoot 'platform-tools-latest-windows.zip'
+    $toolsZip = Join-Path $PSScriptRoot 'platform-tools-latest-windows.zip'
     Say "Downloading $PlatformToolsUrl ..."
     $ProgressPreference = 'SilentlyContinue' # the progress bar makes the download very slow in 5.1
-    Invoke-WebRequest -Uri $PlatformToolsUrl -OutFile $zip -UseBasicParsing
-    Expand-Archive -LiteralPath $zip -DestinationPath $PSScriptRoot -Force
-    Remove-Item -LiteralPath $zip
+    Invoke-WebRequest -Uri $PlatformToolsUrl -OutFile $toolsZip -UseBasicParsing
+    Expand-Archive -LiteralPath $toolsZip -DestinationPath $PSScriptRoot -Force
+    Remove-Item -LiteralPath $toolsZip
     $adb = Find-Adb
     if (-not $adb) { Fail 'The download did not contain adb.exe.' }
     Say "adb installed in $(Join-Path $PSScriptRoot 'platform-tools')."
@@ -227,7 +227,7 @@ Step 'Choosing what to install'
 Say 'Always: Nook Wi-Fi Helper and the Nook Wi-Fi KOReader plugin, with their permissions.'
 $installKoreader = $false
 $nookSetup = $false
-$fonts = $false
+$installFonts = $false
 $launcher = $false
 $setHome = $false
 $appstore = $false
@@ -256,7 +256,7 @@ if ($fontsFile -and ($koreader -or $installKoreader)) {
     Say ''
     Say "Reading fonts: Atkinson Hyperlegible Next and Lexend, made for legibility, in KOReader's"
     Say 'font menu (free fonts under the SIL Open Font License).'
-    $fonts = Ask 'Install the reading fonts?' 'y'
+    $installFonts = Ask 'Install the reading fonts?' 'y'
 }
 if ($launcherApk) {
     Say ''
@@ -310,7 +310,7 @@ if ($installKoreader) { Say "- KOReader $version" }
 Say '- Nook Wi-Fi Helper and the Nook Wi-Fi plugin, with their permissions'
 if ($koreader -or $installKoreader) { Say "- KOReader's permissions for the frontlight and its files" }
 if ($nookSetup) { Say '- Page buttons and frontlight setup' }
-if ($fonts) { Say '- Reading fonts: Atkinson Hyperlegible Next and Lexend' }
+if ($installFonts) { Say '- Reading fonts: Atkinson Hyperlegible Next and Lexend' }
 if ($launcher) {
     if ($setHome) { Say '- KOReader Home, as the default Home app' } else { Say '- KOReader Home (not the default Home app)' }
 }
@@ -331,7 +331,7 @@ Step 'Checking the release files'
 $files = @($helperApk, $pluginZip)
 if ($installKoreader) { $files += $koreaderApk }
 if ($nookSetup) { $files += $NookPatches + $EventMap }
-if ($fonts) { $files += $FontsZip }
+if ($installFonts) { $files += $FontsZip }
 if ($launcher) { $files += @($launcherApk, $Patch) }
 if ($null -ne $sums) {
     foreach ($f in $files) { Test-Sum $f }
@@ -427,7 +427,7 @@ try {
         }
     }
 
-    if ($fonts) {
+    if ($installFonts) {
         Step 'Installing the reading fonts'
         $fontsTmp = Join-Path $tmp 'fonts'
         Expand-Archive -LiteralPath $FontsZip -DestinationPath $fontsTmp
@@ -435,7 +435,13 @@ try {
         foreach ($f in $FontFamilies) {
             $familyDir = Join-Path $fontsTmp $f
             if (-not (Test-Path -LiteralPath (Join-Path $familyDir 'OFL.txt') -PathType Leaf)) { Fail "$FontsZip does not contain $f." }
-            # Replace the folder: it holds only this release's copy of the family.
+            # Replace only a folder this project installed (it carries our SOURCE.txt); a folder
+            # of the same name with your own fonts is left alone.
+            if ((Invoke-Adb shell "[ -e $Fonts/$f ] && echo yes") -eq 'yes' -and
+                (Invoke-Adb shell "grep -q 'KOReader-first Nook' $Fonts/$f/SOURCE.txt 2>/dev/null && echo yes") -ne 'yes') {
+                Say "Kept your own $Fonts/$f; this release's $f was not installed."
+                continue
+            }
             Invoke-AdbChecked "Could not remove the old $f." shell rm -rf "$Fonts/$f" | Out-Null
             Invoke-AdbChecked "Could not copy $f to the Nook." push $familyDir "$Fonts/" | Out-Null
             Say "Fonts copied to $Fonts/$f."
@@ -477,10 +483,10 @@ try {
         if (-not $release.tag_name) { Fail "Could not read a release tag from GitHub's reply." }
         return $release
     }
-    # The asset of $Release matching $Pattern (its name and download URL).
-    function Get-ReleaseAsset($Release, [string]$Pattern) {
-        $asset = @($Release.assets | Where-Object { $_.name -like $Pattern }) | Select-Object -First 1
-        if (-not $asset) { Fail "Release $($Release.tag_name) has no file matching $Pattern." }
+    # The asset of release $Info matching $Pattern (its name and download URL).
+    function Get-ReleaseAsset($Info, [string]$Pattern) {
+        $asset = @($Info.assets | Where-Object { $_.name -like $Pattern }) | Select-Object -First 1
+        if (-not $asset) { Fail "Release $($Info.tag_name) has no file matching $Pattern." }
         return @{ Url = $asset.browser_download_url; Name = $asset.name }
     }
     function Get-Download([string]$Url, [string]$OutFile) {
@@ -506,9 +512,9 @@ try {
         Step 'Installing App Store'
         $release = Get-Release $AppstoreRepo 'latest'
         $found = Get-ReleaseAsset $release 'appstore.koplugin.zip'
-        $zip = Join-Path $tmp $found.Name
-        Get-Download $found.Url $zip
-        Push-PluginZip $zip 'appstore.koplugin'
+        $appstoreZip = Join-Path $tmp $found.Name
+        Get-Download $found.Url $appstoreZip
+        Push-PluginZip $appstoreZip 'appstore.koplugin'
         Say "App Store $($release.tag_name) copied to $Plugins/appstore.koplugin (from github.com/$AppstoreRepo)."
     }
 
@@ -520,16 +526,16 @@ try {
         $release = Get-Release $ZenfmRepo $zenfmRelease
         if ($zenfmApp) {
             $apkAsset = Get-ReleaseAsset $release 'ZenFM-android-*.apk'
-            $apk = Join-Path $tmp $apkAsset.Name
-            Get-Download $apkAsset.Url $apk
-            Install-Apk $apk 'ZenFM companion app' $ZenfmPkg
+            $zenfmApk = Join-Path $tmp $apkAsset.Name
+            Get-Download $apkAsset.Url $zenfmApk
+            Install-Apk $zenfmApk 'ZenFM companion app' $ZenfmPkg
             Say "ZenFM companion app $($release.tag_name) installed (from github.com/$ZenfmRepo)."
         }
         if ($zenfmPlugin) {
             $zipAsset = Get-ReleaseAsset $release 'ZenFM-koreader-android-*.zip'
-            $zip = Join-Path $tmp $zipAsset.Name
-            Get-Download $zipAsset.Url $zip
-            Push-PluginZip $zip 'zenfm.koplugin'
+            $zenfmZip = Join-Path $tmp $zipAsset.Name
+            Get-Download $zipAsset.Url $zenfmZip
+            Push-PluginZip $zenfmZip 'zenfm.koplugin'
             Say "ZenFM $($release.tag_name) copied to $Plugins/zenfm.koplugin (from github.com/$ZenfmRepo)."
         }
         Say 'The first time you start it, approve the "Start ZenFM?" prompt (see its README).'

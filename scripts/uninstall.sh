@@ -140,16 +140,16 @@ if ! $helper && ! $plugin && ! $launcher && ! $home_patch && [ -z "$nook_patches
     exit 0
 fi
 
-# Book files in the koreader folder (one path per line, relative to it), leaving out
-# KOReader's own folders and the .sdr folders that hold each book's highlights.
+# The user's own files in the koreader folder (one path per line, relative to it): every
+# file except KOReader's own folders, its settings and logs at the top, and the .sdr
+# folders that hold each book's highlights (moved with their book). Anything else is
+# kept, whatever its type. Fails unless the listing completed: the Nook's shell must
+# report find's success, or nothing could be told apart from an empty folder.
 list_books() {
-    names=-iname\ \"*.epub\"
-    for e in pdf djvu djv fb2 mobi azw azw3 prc pdb cbz cbr cbt cb7 txt rtf doc docx odt chm xps oxps; do
-        names="$names -o -iname \"*.$e\""
-    done
-    shell "cd $KOREADER_DIR && find . -type f \\( $names \\)" \
-        | sed 's|^\./||' \
-        | grep -v -E '^(cache|clipboard|data|docsettings|fonts|hashdocsettings|help|ota|patches|plugins|screenshots|scripts|settings|styletweaks)/|\.sdr/' || true
+    out=$(shell "cd $KOREADER_DIR && find . -type f; echo END:\$?") || return 1
+    [ "$(printf '%s\n' "$out" | tail -n 1)" = END:0 ] || return 1
+    printf '%s\n' "$out" | sed '$d' | sed 's|^\./||' \
+        | grep -v -E '^(cache|clipboard|data|docsettings|fonts|hashdocsettings|help|ota|patches|plugins|scripts|settings|styletweaks)/|\.sdr/|^[^/]*\.(lua|lua\.old|log)$' || true
 }
 
 step "Choosing what to remove"
@@ -163,15 +163,18 @@ books=
 if $koreader || $koreader_dir; then
     say ""
     say "KOReader: the app and its $KOREADER_DIR folder, with KOReader's settings, reading"
-    say "statistics, dictionaries and other plugins (App Store, ZenFM). Book files in that folder"
-    say "are moved to $BOOKS_DIR first, each with its highlights; books elsewhere stay where they are."
+    say "statistics, dictionaries, fonts and plugins (App Store, ZenFM). Your own files in that"
+    say "folder (books and anything else not KOReader's) are moved to $BOOKS_DIR first, each book"
+    say "with its highlights; books elsewhere stay where they are."
     if ask "Remove KOReader and its folder?" n; then
         remove_koreader=true
         # Everything else from this project lives in KOReader or its folder.
         if $helper || $plugin; then remove_wifi=true; fi
         if $launcher || $home_patch; then remove_launcher=true; fi
         if [ -n "$nook_patches" ] || [ "$event_map" != none ]; then remove_setup=true; fi
-        if $koreader_dir; then books=$(list_books); fi
+        if $koreader_dir; then
+            books=$(list_books) || die "Could not list the files in $KOREADER_DIR. Nothing was changed."
+        fi
     fi
 fi
 if ! $remove_koreader && { $helper || $plugin; }; then
@@ -249,7 +252,7 @@ if [ "$event_map" = theirs ] && $remove_setup && ! $remove_koreader; then
 fi
 if $remove_koreader; then
     if [ -n "$books" ]; then
-        say "- Move $(printf '%s\n' "$books" | wc -l | tr -d ' ') book file(s) from $KOREADER_DIR to $BOOKS_DIR:"
+        say "- Move $(printf '%s\n' "$books" | wc -l | tr -d ' ') file(s) from $KOREADER_DIR to $BOOKS_DIR:"
         printf '%s\n' "$books" | sed 's/^/    /'
     fi
     if $koreader; then say "- Uninstall KOReader"; fi
@@ -275,26 +278,36 @@ q() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 there() { [ -n "$(shell "[ -e $(q "$1") ] && echo yes")" ]; }
 # Moves a file or folder on the Nook, never over an existing one, and checks it moved.
 move() {
-    ! there "$2" || die "$2 already exists. Nothing was removed; books moved so far are in $BOOKS_DIR."
+    ! there "$2" || die "$2 already exists. Nothing was removed; files moved so far are in $BOOKS_DIR."
     shell "mkdir -p $(q "${2%/*}") && mv $(q "$1") $(q "$2")"
-    there "$2" && ! there "$1" || die "Could not move $1 to $2. Nothing was removed; books moved so far are in $BOOKS_DIR."
+    there "$2" && ! there "$1" || die "Could not move $1 to $2. Nothing was removed; files moved so far are in $BOOKS_DIR."
 }
 
-# Books first: if any move fails, nothing has been removed yet.
+# The path without its file name's extension ("Books/Title.epub" -> "Books/Title"; a
+# dot in a folder name, or a name with no extension, is left alone).
+stem() {
+    case "${1##*/}" in
+        ?*.*) printf '%s\n' "${1%.*}" ;;
+        *) printf '%s\n' "$1" ;;
+    esac
+}
+
+# Files first: if any move fails, nothing has been removed yet.
 if [ -n "$books" ]; then
-    step "Moving books to $BOOKS_DIR"
+    step "Moving your files to $BOOKS_DIR"
     printf '%s\n' "$books" | while IFS= read -r b; do
         src=$KOREADER_DIR/$b
         dst=$BOOKS_DIR/$b
+        ext=${b#"$(stem "$b")"}
         # Never overwrite: "Title.epub" becomes "Title (2).epub", and so on.
         n=1
-        while there "$dst" || there "${dst%.*}.sdr"; do
+        while there "$dst" || there "$(stem "$dst").sdr"; do
             n=$((n + 1))
-            dst="$BOOKS_DIR/${b%.*} ($n).${b##*.}"
+            dst="$BOOKS_DIR/$(stem "$b") ($n)$ext"
         done
         move "$src" "$dst"
         # The book's highlights, notes and reading position (Title.epub -> Title.sdr).
-        if there "${src%.*}.sdr"; then move "${src%.*}.sdr" "${dst%.*}.sdr"; fi
+        if there "$(stem "$src").sdr"; then move "$(stem "$src").sdr" "$(stem "$dst").sdr"; fi
         say "Moved $b."
     done || exit 1
 fi
@@ -359,7 +372,7 @@ fi
 
 step "Done"
 if $remove_koreader; then
-    if [ -n "$books" ]; then say "Your books from $KOREADER_DIR are in $BOOKS_DIR."; fi
+    if [ -n "$books" ]; then say "Your files from $KOREADER_DIR are in $BOOKS_DIR."; fi
     say "Networks you joined and remotes you paired stay saved in Android."
     exit 0
 fi

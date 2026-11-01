@@ -50,6 +50,14 @@ check: check-launcher
 	$(LUACHECK) --no-color $(PLUGIN) plugin/tests koreader-config
 	luajit plugin/tests/run.lua
 	luajit plugin/tests/jni.lua
+	@# PowerShell variable names ignore case: $$fonts and $$Fonts are one variable. Fail on any
+	@# name spelled two ways in one script (comment lines skipped); it overwrote a path twice.
+	@for f in scripts/*.ps1; do \
+		grep -v '^[[:space:]]*#' "$$f" | grep -o '\$$[A-Za-z_][A-Za-z0-9_]*' | sort -u \
+			| awk -v f="$$f" '{ k = tolower($$0); n[k]++; s[k] = s[k] " " $$0 } \
+				END { for (k in n) if (n[k] > 1) { print f ": variable spelled two ways:" s[k]; bad = 1 } exit bad }' \
+			|| exit 1; \
+	done
 
 install: install-helper install-plugin
 

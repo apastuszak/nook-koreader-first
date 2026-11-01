@@ -180,14 +180,18 @@ if (-not $helper -and -not $pluginThere -and -not $launcher -and -not $homePatch
     exit 0
 }
 
-# Book files in the koreader folder (paths relative to it), leaving out KOReader's own
-# folders and the .sdr folders that hold each book's highlights.
+# The user's own files in the koreader folder (paths relative to it): every file except
+# KOReader's own folders, its settings and logs at the top, and the .sdr folders that hold
+# each book's highlights (moved with their book). Anything else is kept, whatever its
+# type. Returns $null unless the listing completed: the Nook's shell must report find's
+# success, or nothing could be told apart from an empty folder.
 function Get-Books {
-    $names = (@('epub', 'pdf', 'djvu', 'djv', 'fb2', 'mobi', 'azw', 'azw3', 'prc', 'pdb', 'cbz', 'cbr', 'cbt',
-        'cb7', 'txt', 'rtf', 'doc', 'docx', 'odt', 'chm', 'xps', 'oxps') | ForEach-Object { "-iname '*.$_'" }) -join ' -o '
-    $out = Invoke-Adb shell "cd $KoreaderDir && find . -type f \( $names \)"
-    return @($out -split "`n" | ForEach-Object { $_.Trim() -replace '^\./', '' } | Where-Object {
-        $_ -and $_ -notmatch '^(cache|clipboard|data|docsettings|fonts|hashdocsettings|help|ota|patches|plugins|screenshots|scripts|settings|styletweaks)/|\.sdr/'
+    $out = Invoke-Adb shell "cd $KoreaderDir && find . -type f; echo END:`$?"
+    if ($script:AdbExit -ne 0) { return $null }
+    $listed = @($out -split "`n" | ForEach-Object { $_.TrimEnd() })
+    if ($listed.Count -eq 0 -or $listed[-1] -ne 'END:0') { return $null }
+    return ,@($listed | Select-Object -SkipLast 1 | ForEach-Object { $_ -replace '^\./', '' } | Where-Object {
+        $_ -and $_ -notmatch '^(cache|clipboard|data|docsettings|fonts|hashdocsettings|help|ota|patches|plugins|scripts|settings|styletweaks)/|\.sdr/|^[^/]*\.(lua|lua\.old|log)$'
     })
 }
 
@@ -202,15 +206,19 @@ $books = @()
 if ($koreader -or $koreaderDirThere) {
     Say ''
     Say "KOReader: the app and its $KoreaderDir folder, with KOReader's settings, reading"
-    Say 'statistics, dictionaries and other plugins (App Store, ZenFM). Book files in that folder'
-    Say "are moved to $BooksDir first, each with its highlights; books elsewhere stay where they are."
+    Say 'statistics, dictionaries, fonts and plugins (App Store, ZenFM). Your own files in that'
+    Say "folder (books and anything else not KOReader's) are moved to $BooksDir first, each book"
+    Say 'with its highlights; books elsewhere stay where they are.'
     if (Ask 'Remove KOReader and its folder?' 'n') {
         $removeKoreader = $true
         # Everything else from this project lives in KOReader or its folder.
         if ($helper -or $pluginThere) { $removeWifi = $true }
         if ($launcher -or $homePatchThere) { $removeLauncher = $true }
         if ($nookPatchesThere.Count -gt 0 -or $eventMapState -ne 'none') { $removeSetup = $true }
-        if ($koreaderDirThere) { $books = Get-Books }
+        if ($koreaderDirThere) {
+            $books = Get-Books
+            if ($null -eq $books) { Fail "Could not list the files in $KoreaderDir. Nothing was changed." }
+        }
     }
 }
 if (-not $removeKoreader -and ($helper -or $pluginThere)) {
@@ -292,7 +300,7 @@ if ($eventMapState -eq 'theirs' -and $removeSetup -and -not $removeKoreader) {
 }
 if ($removeKoreader) {
     if ($books.Count -gt 0) {
-        Say "- Move $($books.Count) book file(s) from $KoreaderDir to ${BooksDir}:"
+        Say "- Move $($books.Count) file(s) from $KoreaderDir to ${BooksDir}:"
         foreach ($b in $books) { Say "    $b" }
     }
     if ($koreader) { Say '- Uninstall KOReader' }
@@ -312,25 +320,26 @@ function Uninstall-Apk([string]$Package, [string]$Name) {
     Fail "Could not uninstall $Name."
 }
 
-# The path without its extension ("Books/Title.epub" -> "Books/Title").
+# The path without its file name's extension ("Books/Title.epub" -> "Books/Title"; a
+# dot in a folder name, or a name with no extension, is left alone).
 function Remove-Extension([string]$Path) {
     $dot = $Path.LastIndexOf('.')
-    if ($dot -gt $Path.LastIndexOf('/')) { return $Path.Substring(0, $dot) }
+    if ($dot -gt $Path.LastIndexOf('/') + 1) { return $Path.Substring(0, $dot) }
     return $Path
 }
 # Moves a file or folder on the Nook, never over an existing one, and checks it moved.
 function Move-OnNook([string]$From, [string]$To) {
-    if (Test-There $To) { Fail "$To already exists. Nothing was removed; books moved so far are in $BooksDir." }
+    if (Test-There $To) { Fail "$To already exists. Nothing was removed; files moved so far are in $BooksDir." }
     $parent = $To.Substring(0, $To.LastIndexOf('/'))
     Invoke-Adb shell "mkdir -p $(Quote $parent) && mv $(Quote $From) $(Quote $To)" | Out-Null
     if (-not (Test-There $To) -or (Test-There $From)) {
-        Fail "Could not move $From to $To. Nothing was removed; books moved so far are in $BooksDir."
+        Fail "Could not move $From to $To. Nothing was removed; files moved so far are in $BooksDir."
     }
 }
 
-# Books first: if any move fails, nothing has been removed yet.
+# Files first: if any move fails, nothing has been removed yet.
 if ($books.Count -gt 0) {
-    Step "Moving books to $BooksDir"
+    Step "Moving your files to $BooksDir"
     foreach ($b in $books) {
         $src = "$KoreaderDir/$b"
         $dst = "$BooksDir/$b"
@@ -408,7 +417,7 @@ if ($removeKoreader) {
 
 Step 'Done'
 if ($removeKoreader) {
-    if ($books.Count -gt 0) { Say "Your books from $KoreaderDir are in $BooksDir." }
+    if ($books.Count -gt 0) { Say "Your files from $KoreaderDir are in $BooksDir." }
     Say 'Networks you joined and remotes you paired stay saved in Android.'
     exit 0
 }
