@@ -12,6 +12,7 @@ What you get:
 - **Open Nook home**: jump to the Nook's own home screen when you do need it (the B&N store, the Nook's settings), and press Home to come back.
 - **Page buttons and frontlight**: the Nook's four page buttons turn pages in KOReader, and KOReader's own brightness and warmth sliders replace Android's light dialog.
 - **Reading fonts**: Atkinson Hyperlegible Next, Lexend, Literata and Bitter, each with real italics, in KOReader's font menu.
+- **English dictionary** (optional): [reader.dict](https://www.reader-dict.com), made from Wiktionary, with word histories, for looking up words in KOReader. Downloaded from its website when you install.
 - **KOReader as the Home app** (optional): the Home button opens KOReader, and KOReader's Exit becomes **Restart KOReader**.
 
 The parts:
@@ -90,6 +91,8 @@ It always installs the helper and the plugin, gives them their permissions, and 
 | Install KOReader? (the [exact build](#requirements) this project is tested with) | KOReader is not installed | Yes |
 | Set up the [page buttons and frontlight](#page-buttons-and-frontlight)? | always | Yes |
 | Install the reading fonts? ([Atkinson Hyperlegible Next](https://github.com/googlefonts/atkinson-hyperlegible-next), [Lexend](https://github.com/octaviopardo/lexend/tree/Lexend-a), [Literata](https://github.com/googlefonts/literata) and [Bitter](https://github.com/solmatas/BitterPro), all with italics) | KOReader is, or will be, installed | Yes |
+| Install the dictionary? ([reader.dict](https://www.reader-dict.com) English, with etymologies; downloads about 62 MB) | KOReader is, or will be, installed, and the dictionary is not | No |
+| Update it to the newest edition? | the reader.dict English dictionary is already installed | No |
 | Copy the user guide to the Nook? (the [user guide](docs/user-guide.md) as an e-book, in the `NOOK` folder) | always | Yes |
 | Install [KOReader Home](#optional-koreader-home-launcher)? | KOReader is, or will be, installed | No |
 | Make KOReader Home the default Home app now? | you said yes to KOReader Home | No |
@@ -104,6 +107,7 @@ Good to know:
 - It never uninstalls anything, and never replaces a KOReader you already have.
 - It never overwrites a key map (`koreader/settings/event_map.lua`) you already have, unless it is the same.
 - **Reading fonts** go into `koreader/fonts/`, one folder per family; see [Reading fonts](#reading-fonts). Other fonts there are not touched, and a font folder of the same name that this script did not install is kept as it is.
+- **The dictionary** is not part of this project's releases: the script always downloads the newest edition from [reader-dict.com](https://www.reader-dict.com/download/en) (the file KOReader's own **Download dictionaries** offers as "reader.dict English") and puts it in `koreader/data/dict/reader.dict English/`. If reader.dict English is already in `koreader/data/dict/` (in any folder), the script offers to update that copy instead, replacing only reader.dict's own files, so KOReader never lists it twice. It checks that the download holds only the dictionary's files; reader.dict publishes no checksums, so the download is trusted because it comes over HTTPS from reader.dict's own site.
 - **App Store and ZenFM** are separate projects with their own licenses (GPL-3.0 and AGPL-3.0) and support. The script downloads the newest stable release of each from its own GitHub page (for ZenFM, its KOReader plugin and its small companion app). If one is already installed, the script leaves it alone: both can update themselves. If only one of ZenFM's two parts is on the Nook, the script offers just the missing part, from the same ZenFM release, and never replaces the part that is there. Neither publishes checksums, so the downloads are trusted because they come over HTTPS from the projects' own release pages.
 - Afterwards, exit KOReader and open it again.
 
@@ -147,7 +151,14 @@ Good to know:
    ```sh
    adb push KOReader-first-Nook-Guide.epub /sdcard/NOOK/
    ```
-8. **Exit KOReader and open it again.** On Android, KOReader has no Restart option, and it only loads plugins, patches and fonts when it starts.
+8. **Dictionary (optional).** Download `dict-en-en.zip` (English, with etymologies) from [reader-dict.com](https://www.reader-dict.com/download/en), unzip it, and copy its files into a folder in `koreader/data/dict/`. Over USB:
+   ```sh
+   unzip dict-en-en.zip -d dict
+   adb shell mkdir -p "'/sdcard/koreader/data/dict/reader.dict English'"
+   adb push dict/* "/sdcard/koreader/data/dict/reader.dict English/"
+   ```
+   Or download it on the Nook itself, from KOReader's **Download dictionaries** (see [Dictionary](#dictionary)).
+9. **Exit KOReader and open it again.** On Android, KOReader has no Restart option, and it only loads plugins, patches and fonts when it starts.
 
 ## Use
 
@@ -222,6 +233,16 @@ Four free font families, installed by the install script (it asks first; the ans
 
 **Your own fonts** can go in `koreader/fonts/` too. The install script never touches other fonts there, and it keeps a folder with one of these four names if this project did not install it. The uninstall script asks before removing the reading fonts and removes only the folders this project installed.
 
+### Dictionary
+
+The [reader.dict](https://www.reader-dict.com) English dictionary, made from Wiktionary: about 1.5 million entries, with word histories (etymologies). The install script offers it (the answer defaults to no) and downloads it from reader.dict's website; it is not included in this project's releases.
+
+**To look up a word:** in a book, hold your finger on the word. KOReader shows its definitions in a pop-up. Dictionary settings are in the top menu's search tab (the magnifying glass) → **Settings** → **Dictionary settings**.
+
+**Updates:** reader.dict publishes a new edition about once a month. Run the install script again and answer yes to **Update it to the newest edition?**, or, with Wi-Fi on, use KOReader's own **Dictionary settings** → **Download dictionaries** → English → **reader.dict English**, which gets the same file.
+
+**Where it is:** `koreader/data/dict/reader.dict English/` on the Nook's storage (or the folder an earlier copy was already in). The dictionary's text comes from [Wiktionary](https://www.wiktionary.org) and is under the [Creative Commons Attribution-ShareAlike 4.0](https://creativecommons.org/licenses/by-sa/4.0/) license.
+
 ### Open Nook home
 
 **Tools → Open Nook home** opens the stock Nook home screen (your library, the B&N store and the Nook's own settings) without changing your default Home app. Press **Home** to come back: with the optional KOReader Home launcher that returns to KOReader; otherwise it goes to your default launcher. The **Open Nook home** action can also be assigned to a gesture or a key.
@@ -245,7 +266,7 @@ Four free font families, installed by the install script (it asks first; the ans
 
 Install the new helper APK over the old one, and replace the `nookwifi.koplugin` folder with the new one. Then exit KOReader and open it again. Your location permission is kept.
 
-Running the install script again also updates the reading fonts: it replaces the four font folders it installed (and only those).
+Running the install script again also updates the reading fonts: it replaces the four font folders it installed (and only those). It also offers to update the dictionary to reader.dict's newest edition.
 
 Always update the helper and the plugin together; **Helper info** shows both versions so you can check. If the two cannot work together, the plugin says to update both, or that the helper is out of date.
 
@@ -278,6 +299,8 @@ If you keep KOReader, exit it and open it again afterwards.
 3. Exit KOReader and open it again. KOReader's Wi-Fi items go back to opening Android settings.
 
 To remove the reading fonts by hand, delete the `AtkinsonHyperlegibleNext`, `Lexend`, `Literata` and `Bitter` folders from `koreader/fonts/`, then exit KOReader and open it again. Books that used them go back to KOReader's default font.
+
+The uninstall script leaves the dictionary alone unless you remove KOReader (its folder holds it). To remove it by hand, delete its folder from `koreader/data/dict/` (`reader.dict English`, or the folder it was in), or use KOReader's **Dictionary settings**.
 
 Networks you joined, and remotes you paired, stay saved in Android. If you set **Nook power off after sleeping**, uninstalling the helper turns it back to never (Android removes the setting, and the Nook treats a missing setting as never).
 
@@ -406,6 +429,8 @@ Not affiliated with or endorsed by Barnes & Noble or the KOReader project. NOOK 
 Nook Wi-Fi (the helper app and the KOReader plugin) is free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, version 3 or (at your option) any later version. That is the same license KOReader uses. It is distributed WITHOUT ANY WARRANTY; see [LICENSE](LICENSE) for the full text.
 
 **KOReader** (`koreader-android-arm-<version>.apk` in the releases) is a separate program by the KOReader developers, also under the GNU AGPL v3.0, included unchanged so the install script can install a tested build. Its source code for the included build is KOReader commit [`b44e9b7`](https://github.com/koreader/koreader/tree/b44e9b7); see [third_party/koreader/README.md](third_party/koreader/README.md).
+
+The **reader.dict dictionary** is not included in this project or its releases: the install script downloads it from [reader-dict.com](https://www.reader-dict.com) onto your Nook. reader.dict is made from [Wiktionary](https://www.wiktionary.org) data, under the [Creative Commons Attribution-ShareAlike 4.0](https://creativecommons.org/licenses/by-sa/4.0/) license; "reader.dict" is its maker's trademark. This project offers it with its maker's permission, but is not otherwise connected with reader.dict.
 
 The **reading fonts** are included in `fonts.zip` in the releases and in [third_party/fonts/](third_party/fonts/). They are separate works under the [SIL Open Font License 1.1](https://openfontlicense.org), not the AGPL: you may use, share and modify them, but not sell them on their own, and a modified version may not use the font's Reserved Font Name. Each font's folder holds its `OFL.txt` and a `SOURCE.txt` naming the exact upstream commit and any changes.
 

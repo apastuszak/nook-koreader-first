@@ -178,6 +178,16 @@ The list is in alphabetical order and has several pages. Lexend-aalt and Literat
 
 Italic text in a book uses the font's real italics, not a slanted copy of the normal letters.
 
+## Looking up words
+
+If you chose the dictionary when installing, KOReader has an English dictionary, **reader.dict**, made from Wiktionary. Besides definitions, it gives each word's history (its etymology).
+
+**To look up a word**, hold your finger on it in a book. A pop-up shows its definitions; tap outside the pop-up to close it. If more than one dictionary has the word, the buttons at the bottom of the pop-up move between them.
+
+**Dictionary settings** are in the top menu's search tab (the magnifying glass) → **Settings** → **Dictionary settings**: for example a larger pop-up or a bigger font.
+
+**Getting the newest edition:** reader.dict comes out with a new edition about once a month. With Wi-Fi on, open **Dictionary settings** → **Download dictionaries** → English → **reader.dict English**. Or run the install script again on your computer and answer yes to **Update it to the newest edition?**
+
 ## Nook power off after sleeping
 
 The Nook can switch itself off after it has been asleep for a while. A switched-off Nook uses no battery, but starting it again takes a long press of the power button and a full start-up.

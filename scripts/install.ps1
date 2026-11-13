@@ -5,9 +5,10 @@
 #
 # It asks what to install, then shows a summary before changing anything: KOReader (the
 # build this project is tested with, if KOReader is missing), the Nook page-button and
-# frontlight setup, four reading fonts, the user guide (an EPUB), the KOReader Home launcher
-# (and whether to make it the default Home app), and the App Store and ZenFM plugins
-# (downloaded from their GitHub releases).
+# frontlight setup, four reading fonts, an English dictionary (downloaded from
+# reader-dict.com), the user guide (an EPUB), the KOReader Home launcher (and whether to
+# make it the default Home app), and the App Store and ZenFM plugins (downloaded from their
+# GitHub releases).
 # Without a terminal to ask on, it takes the default answers and never changes the
 # default Home app. Run it with only the Nook connected, with USB debugging turned on.
 # It never uninstalls anything.
@@ -43,6 +44,17 @@ $FontFamilies = @('AtkinsonHyperlegibleNext', 'Lexend', 'Literata', 'Bitter')
 # KOReader's file browser and the Nook's own library find it.
 $GuideEpub = 'KOReader-first-Nook-Guide.epub'
 $Books = '/sdcard/NOOK'
+# English dictionary for KOReader's word lookup: reader.dict, made from Wiktionary (CC BY-SA
+# 4.0), the edition with etymologies. Always downloaded from reader-dict.com at install
+# time, never shipped with this project (a new edition comes out about once a month, with
+# no checksums). KOReader's own "Download dictionaries" uses the same URL and folder name,
+# so an update from either place replaces the same copy.
+$Dict = '/sdcard/koreader/data/dict'
+$DictUrl = 'https://www.reader-dict.com/file/en/dict-en-en.zip'
+$DictName = 'reader.dict English'
+$DictIfo = 'reader.dict-en.ifo'
+# Outside the dictionary folder, so KOReader never sees a half-copied dictionary.
+$DictStage = '/sdcard/koreader/data/.reader.dict-download'
 # Third-party plugins, from their own GitHub releases (newest stable release). Neither
 # project publishes checksums; the files come over HTTPS from their release pages. An
 # installed copy is never replaced: both have their own updaters, and App Store keeps its
@@ -53,7 +65,7 @@ $ZenfmPkg = 'org.zenlabs.zenfm'
 $PlatformToolsUrl = 'https://dl.google.com/android/repository/platform-tools-latest-windows.zip'
 
 function Show-Usage {
-    Get-Content -LiteralPath $PSCommandPath -TotalCount 13 | ForEach-Object { $_ -replace '^# ?', '' }
+    Get-Content -LiteralPath $PSCommandPath -TotalCount 14 | ForEach-Object { $_ -replace '^# ?', '' }
 }
 function Say([string]$Text) { Write-Host $Text }
 function Step([string]$Text) { Write-Host ''; Write-Host "== $Text" }
@@ -239,6 +251,9 @@ Say 'Always: Nook Wi-Fi Helper and the Nook Wi-Fi KOReader plugin, with their pe
 $installKoreader = $false
 $nookSetup = $false
 $installFonts = $false
+$installDict = $false
+$dictDir = $null
+$dictDate = $null
 $installGuide = $false
 $launcher = $false
 $setHome = $false
@@ -269,6 +284,34 @@ if ($fontsFile -and ($koreader -or $installKoreader)) {
     Say "Reading fonts for KOReader's font menu: Atkinson Hyperlegible Next and Lexend (made for"
     Say 'legibility), and Literata and Bitter (book serifs). Free fonts under the SIL Open Font License.'
     $installFonts = Ask 'Install the reading fonts?' 'y'
+}
+if ($koreader -or $installKoreader) {
+    # An installed copy (in KOReader's folder from its own downloader, or one copied there by
+    # hand) is updated in place, so KOReader does not list the dictionary twice.
+    $dictFound = @((Invoke-Adb shell "find $Dict -maxdepth 2 -name $DictIfo 2>/dev/null") -split "`n" |
+        Where-Object { $_.Trim() } | ForEach-Object { $_.Trim() })
+    Say ''
+    if ($dictFound.Count -eq 0) {
+        Say 'English dictionary for looking up words in KOReader: reader.dict, made from Wiktionary,'
+        Say 'with word histories (etymologies). Free (CC BY-SA 4.0); downloads about 62 MB from reader-dict.com.'
+        if (Ask 'Install the dictionary?' 'n') { $installDict = $true; $dictDir = "$Dict/$DictName" }
+    } elseif ($dictFound.Count -gt 1) {
+        Say "The reader.dict English dictionary is in more than one folder in $Dict; leaving it as it is."
+    } else {
+        $dictDir = $dictFound[0].Substring(0, $dictFound[0].Length - $DictIfo.Length - 1)
+        if ($dictDir.Contains("'")) {
+            Say "The reader.dict English dictionary is in $dictDir; its folder name has a ' in it,"
+            Say 'so it is left as it is.'
+            $dictDir = $null
+        } else {
+            $ifoText = Invoke-Adb shell "cat '$($dictFound[0])'"
+            if ($ifoText -match '(?m)^date=(\S+)') { $dictDate = $Matches[1] }
+            $edition = if ($dictDate) { " (edition of $dictDate)" } else { '' }
+            Say "English dictionary: reader.dict$edition is installed in $dictDir."
+            Say 'reader-dict.com publishes a new edition about once a month (about 62 MB).'
+            $installDict = Ask 'Update it to the newest edition?' 'n'
+        }
+    }
 }
 if ($guidePresent) {
     Say ''
@@ -328,6 +371,10 @@ Say '- Nook Wi-Fi Helper and the Nook Wi-Fi plugin, with their permissions'
 if ($koreader -or $installKoreader) { Say "- KOReader's permissions for the frontlight and its files" }
 if ($nookSetup) { Say '- Page buttons and frontlight setup' }
 if ($installFonts) { Say '- Reading fonts: Atkinson Hyperlegible Next, Lexend, Literata and Bitter' }
+if ($installDict) {
+    if ($dictDate) { Say '- Newest edition of the reader.dict English dictionary (downloaded from reader-dict.com)' }
+    else { Say '- English dictionary: reader.dict (downloaded from reader-dict.com)' }
+}
 if ($installGuide) { Say "- User guide ($Books/$GuideEpub)" }
 if ($launcher) {
     if ($setHome) { Say '- KOReader Home, as the default Home app' } else { Say '- KOReader Home (not the default Home app)' }
@@ -492,7 +539,7 @@ try {
         }
     }
 
-    if ($appstore -or $zenfm) {
+    if ($appstore -or $zenfm -or $installDict) {
         # Windows PowerShell 5.1 does not enable TLS 1.2 by default; GitHub requires it.
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
         $ProgressPreference = 'SilentlyContinue' # the progress bar makes downloads very slow in 5.1
@@ -532,6 +579,41 @@ try {
             Fail "$(Split-Path -Leaf $Zip) does not contain $Plugin."
         }
         Invoke-AdbChecked "Could not copy $Plugin to the Nook." push $dir "$Plugins/" | Out-Null
+    }
+
+    if ($installDict) {
+        Step 'Installing the dictionary'
+        Say "Downloading $DictUrl (about 62 MB)..."
+        $dictZip = Join-Path $tmp 'dict.zip'
+        Get-Download $DictUrl $dictZip
+        $dictTmp = Join-Path $tmp 'dict'
+        try {
+            Expand-Archive -LiteralPath $dictZip -DestinationPath $dictTmp
+        } catch {
+            Fail 'The dictionary download is not a valid zip file.'
+        }
+        # Only reader.dict's own StarDict files, with no folders: anything else is not copied.
+        $others = @(Get-ChildItem -LiteralPath $dictTmp -Recurse -Force |
+            Where-Object { $_.PSIsContainer -or $_.Name -notlike 'reader.dict-en.*' })
+        if ($others.Count -gt 0) { Fail "The dictionary download holds unexpected files: $(($others | ForEach-Object Name) -join ' ')" }
+        foreach ($f in @($DictIfo, 'reader.dict-en.idx', 'reader.dict-en.dict.dz')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $dictTmp $f) -PathType Leaf)) { Fail "The dictionary download has no $f." }
+        }
+        $ifoLines = Get-Content -LiteralPath (Join-Path $dictTmp $DictIfo)
+        if (-not ($ifoLines | Where-Object { $_ -like 'bookname=reader.dict EN*' })) {
+            Fail 'The download is not the reader.dict English dictionary.'
+        }
+        $newDate = ($ifoLines | Where-Object { $_ -like 'date=*' } | Select-Object -First 1) -replace '^date=', ''
+        Invoke-AdbChecked 'Could not prepare the dictionary folder.' shell "rm -rf $DictStage && mkdir -p $DictStage" | Out-Null
+        foreach ($item in Get-ChildItem -LiteralPath $dictTmp -File) {
+            Invoke-AdbChecked 'Could not copy the dictionary to the Nook.' push $item.FullName "$DictStage/" | Out-Null
+        }
+        # Replaces only reader.dict's own files (and KOReader's lookup caches of them) in that folder.
+        $moved = Invoke-Adb shell "mkdir -p '$dictDir' && rm -f '$dictDir'/reader.dict-en.* && mv $DictStage/* '$dictDir'/ && rmdir $DictStage && echo OK"
+        if ($moved -ne 'OK') { Fail "Could not move the dictionary into $dictDir." }
+        $edition = if ($newDate) { " (edition of $newDate)" } else { '' }
+        Say "Dictionary$edition copied to $dictDir."
+        Say 'reader.dict is made from Wiktionary data, under CC BY-SA 4.0 (www.reader-dict.com).'
     }
 
     if ($appstore) {

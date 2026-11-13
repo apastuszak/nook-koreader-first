@@ -6,9 +6,10 @@
 #
 # It asks what to install, then shows a summary before changing anything: KOReader (the
 # build this project is tested with, if KOReader is missing), the Nook page-button and
-# frontlight setup, four reading fonts, the user guide (an EPUB), the KOReader Home launcher
-# (and whether to make it the default Home app), and the App Store and ZenFM plugins
-# (downloaded from their GitHub releases).
+# frontlight setup, four reading fonts, an English dictionary (downloaded from
+# reader-dict.com), the user guide (an EPUB), the KOReader Home launcher (and whether to
+# make it the default Home app), and the App Store and ZenFM plugins (downloaded from their
+# GitHub releases).
 # Without a terminal to ask on, it takes the default answers and never changes the
 # default Home app. Run it with only the Nook connected, with USB debugging turned on.
 # It never uninstalls anything.
@@ -38,6 +39,17 @@ FONT_FAMILIES="AtkinsonHyperlegibleNext Lexend Literata Bitter"
 # KOReader's file browser and the Nook's own library find it.
 GUIDE=KOReader-first-Nook-Guide.epub
 BOOKS=/sdcard/NOOK
+# English dictionary for KOReader's word lookup: reader.dict, made from Wiktionary (CC BY-SA
+# 4.0), the edition with etymologies. Always downloaded from reader-dict.com at install
+# time, never shipped with this project (a new edition comes out about once a month, with
+# no checksums). KOReader's own "Download dictionaries" uses the same URL and folder name,
+# so an update from either place replaces the same copy.
+DICT=/sdcard/koreader/data/dict
+DICT_URL=https://www.reader-dict.com/file/en/dict-en-en.zip
+DICT_NAME='reader.dict English'
+DICT_IFO=reader.dict-en.ifo
+# Outside the dictionary folder, so KOReader never sees a half-copied dictionary.
+DICT_STAGE=/sdcard/koreader/data/.reader.dict-download
 # Third-party plugins, from their own GitHub releases (newest stable release). Neither
 # project publishes checksums; the files come over HTTPS from their release pages. An
 # installed copy is never replaced: both have their own updaters, and App Store keeps its
@@ -47,7 +59,7 @@ ZENFM_REPO=xZenLabs/zen-fm
 ZENFM_PKG=org.zenlabs.zenfm
 
 usage() {
-    sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'
     exit "${1:-0}"
 }
 for arg in "$@"; do
@@ -181,6 +193,9 @@ say "Always: Nook Wi-Fi Helper and the Nook Wi-Fi KOReader plugin, with their pe
 install_koreader=false
 nook_setup=false
 fonts=false
+dictionary=false
+dict_dir=
+dict_date=
 guide=false
 launcher=false
 set_home=false
@@ -211,6 +226,32 @@ if $fonts_file && { $koreader || $install_koreader; }; then
     say "Reading fonts for KOReader's font menu: Atkinson Hyperlegible Next and Lexend (made for"
     say "legibility), and Literata and Bitter (book serifs). Free fonts under the SIL Open Font License."
     ask "Install the reading fonts?" y && fonts=true
+fi
+if $koreader || $install_koreader; then
+    # An installed copy (in KOReader's folder from its own downloader, or one copied there by
+    # hand) is updated in place, so KOReader does not list the dictionary twice.
+    found=$(shell "find $DICT -maxdepth 2 -name $DICT_IFO 2>/dev/null")
+    say ""
+    if [ -z "$found" ]; then
+        say "English dictionary for looking up words in KOReader: reader.dict, made from Wiktionary,"
+        say "with word histories (etymologies). Free (CC BY-SA 4.0); downloads about 62 MB from reader-dict.com."
+        if ask "Install the dictionary?" n; then dictionary=true; dict_dir="$DICT/$DICT_NAME"; fi
+    elif [ "$(printf '%s\n' "$found" | wc -l | tr -d ' ')" -gt 1 ]; then
+        say "The reader.dict English dictionary is in more than one folder in $DICT; leaving it as it is."
+    else
+        dict_dir=${found%/"$DICT_IFO"}
+        case "$dict_dir" in
+            *"'"*)
+                say "The reader.dict English dictionary is in $dict_dir; its folder name has a ' in it,"
+                say "so it is left as it is."
+                dict_dir= ;;
+            *)
+                dict_date=$(shell "sed -n 's/^date=//p' '$found'" | head -n 1)
+                say "English dictionary: reader.dict${dict_date:+ (edition of $dict_date)} is installed in $dict_dir."
+                say "reader-dict.com publishes a new edition about once a month (about 62 MB)."
+                ask "Update it to the newest edition?" n && dictionary=true ;;
+        esac
+    fi
 fi
 if $guide_file; then
     say ""
@@ -270,6 +311,10 @@ say "- Nook Wi-Fi Helper and the Nook Wi-Fi plugin, with their permissions"
 if $koreader || $install_koreader; then say "- KOReader's permissions for the frontlight and its files"; fi
 $nook_setup && say "- Page buttons and frontlight setup"
 $fonts && say "- Reading fonts: Atkinson Hyperlegible Next, Lexend, Literata and Bitter"
+if $dictionary; then
+    if [ -n "$dict_date" ]; then say "- Newest edition of the reader.dict English dictionary (downloaded from reader-dict.com)"
+    else say "- English dictionary: reader.dict (downloaded from reader-dict.com)"; fi
+fi
 $guide && say "- User guide ($BOOKS/$GUIDE)"
 if $launcher; then
     if $set_home; then say "- KOReader Home, as the default Home app"; else say "- KOReader Home (not the default Home app)"; fi
@@ -299,8 +344,8 @@ if [ -n "$sum" ]; then
 else
     say "No SHA256SUMS here; skipping the checksum check."
 fi
-if $appstore || $zenfm; then
-    command -v curl >/dev/null 2>&1 || die "curl not found; it is needed to download App Store and ZenFM."
+if $appstore || $zenfm || $dictionary; then
+    command -v curl >/dev/null 2>&1 || die "curl not found; it is needed for the downloads."
 fi
 
 # adb install prints its own errors; explain the one people hit when switching builds.
@@ -455,6 +500,31 @@ push_plugin_zip() {
     [ -f "$tmp/extra/$2/main.lua" ] || die "$(basename "$1") does not contain $2."
     adb push "$tmp/extra/$2" "$PLUGINS/" >/dev/null 2>&1 || die "Could not copy $2 to the Nook."
 }
+
+if $dictionary; then
+    step "Installing the dictionary"
+    say "Downloading $DICT_URL (about 62 MB)..."
+    curl -fL --progress-bar -o "$tmp/dict.zip" "$DICT_URL" || die "Could not download $DICT_URL."
+    rm -rf "$tmp/dict" && mkdir -p "$tmp/dict"
+    unzip -q "$tmp/dict.zip" -d "$tmp/dict" || die "The dictionary download is not a valid zip file."
+    # Only reader.dict's own StarDict files, with no folders: anything else is not copied.
+    others=$(cd "$tmp/dict" && find . ! -name . \( -type d -o ! -name 'reader.dict-en.*' \) -print)
+    [ -z "$others" ] || die "The dictionary download holds unexpected files: $others"
+    for f in "$DICT_IFO" reader.dict-en.idx reader.dict-en.dict.dz; do
+        [ -f "$tmp/dict/$f" ] || die "The dictionary download has no $f."
+    done
+    grep -q '^bookname=reader.dict EN' "$tmp/dict/$DICT_IFO" || die "The download is not the reader.dict English dictionary."
+    new_date=$(sed -n 's/^date=//p' "$tmp/dict/$DICT_IFO" | tr -d '\r' | head -n 1)
+    adb shell "rm -rf $DICT_STAGE && mkdir -p $DICT_STAGE"
+    for f in "$tmp"/dict/*; do
+        adb push "$f" "$DICT_STAGE/" >/dev/null 2>&1 || die "Could not copy the dictionary to the Nook."
+    done
+    # Replaces only reader.dict's own files (and KOReader's lookup caches of them) in that folder.
+    ok=$(shell "mkdir -p '$dict_dir' && rm -f '$dict_dir'/reader.dict-en.* && mv $DICT_STAGE/* '$dict_dir'/ && rmdir $DICT_STAGE && echo OK")
+    [ "$ok" = OK ] || die "Could not move the dictionary into $dict_dir."
+    say "Dictionary${new_date:+ (edition of $new_date)} copied to $dict_dir."
+    say "reader.dict is made from Wiktionary data, under CC BY-SA 4.0 (www.reader-dict.com)."
+fi
 
 if $appstore; then
     step "Installing App Store"
