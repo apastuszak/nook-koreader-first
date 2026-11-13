@@ -175,7 +175,11 @@ $homeNow = Get-DefaultHome
 $koreader = Test-Installed $KoreaderPkg
 $koreaderDirThere = Test-Exists $KoreaderDir
 $zenfmApp = Test-Installed $ZenfmPkg
-Say "Found a Nook ($model)."
+switch ($model) {
+    'BNRV1300' { Say 'Found a Nook GlowLight 4 Plus.' }
+    'BNRV1100' { Say 'Found a Nook GlowLight 4.' }
+    default { Say "Found a Nook ($model)." }
+}
 
 if (-not $helper -and -not $pluginThere -and -not $launcher -and -not $homePatchThere -and
     $nookPatchesThere.Count -eq 0 -and $eventMapState -ne 'ours' -and $fontsThere.Count -eq 0 -and

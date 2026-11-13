@@ -1,6 +1,6 @@
 # KOReader-first Nook
 
-Make a **Barnes & Noble Nook GlowLight 4 Plus** a KOReader-first e-reader: everything you need day to day, from inside KOReader, without going back to the Nook's own software or Android settings. No root is needed.
+Make a **Barnes & Noble Nook GlowLight 4 or GlowLight 4 Plus** a KOReader-first e-reader: everything you need day to day, from inside KOReader, without going back to the Nook's own software or Android settings. No root is needed.
 
 *A personal project, not affiliated with or endorsed by Barnes & Noble or the KOReader project.*
 
@@ -30,7 +30,7 @@ The helper and plugin keep the names they started with ("Nook Wi-Fi"), because r
 
 ## Requirements
 
-- Nook GlowLight 4 Plus (Android 8.1). It has only been tested on firmware 8.1.7.120.
+- Nook GlowLight 4 Plus or GlowLight 4 (Android 8.1). Tested on the GlowLight 4 Plus with firmware 8.1.7.120 and on the GlowLight 4 with firmware 8.1.6.103. The GlowLight 4e has not been tested.
 - KOReader for Android, installed as `org.koreader.launcher`. It has been tested with the nightly build from 3 October 2026 (`v2026.07.2-217-gb44e9b7`). KOReader no longer offers that nightly for download, so each release includes it (`koreader-android-arm-v2026.07.2-217-gb44e9b7.apk`), and the install script can install it for you.
 - **For frontlight brightness and warmth, use a KOReader nightly build** for Android. With the stable release, KOReader's brightness and warmth controls do not work on the Nook. Nightly builds are on [KOReader's nightly download page](https://build.koreader.rocks/download/nightly/).
 
@@ -72,7 +72,7 @@ Barnes & Noble hides Android's developer options behind a password-protected scr
 5. Open **Android Development Settings** and turn on **USB debugging**.
 6. Connect the Nook to your computer. When the Nook asks **Allow USB debugging?**, allow it (tick "Always allow from this computer" to skip the question next time).
 
-The GlowLight 4 Plus and GlowLight 4 passwords have been tested on those Nooks; other owners report the same ([MobileRead](https://www.mobileread.com/forums/showthread.php?p=4410111)). Older firmware asks for no password. This project is built for the GlowLight 4 Plus and has also been tried on a GlowLight 4, where everything worked. On any Nook other than the 4 Plus, the installer warns and asks before going on.
+The GlowLight 4 Plus and GlowLight 4 passwords have been tested on those Nooks; other owners report the same ([MobileRead](https://www.mobileread.com/forums/showthread.php?p=4410111)). Older firmware asks for no password. This project is tested on the GlowLight 4 Plus and the GlowLight 4. On any other Nook, the installer warns and asks before going on.
 
 **Check that adb sees the Nook.** With USB debugging turned on, connect the Nook and run `adb devices` (on Windows, `platform-tools\adb devices` if you unzipped it there). The first time, the Nook asks whether to allow this computer: allow it. The Nook should then be listed as `device`. If it shows `unauthorized`, unlock the Nook and accept the prompt; if it is not listed at all, try another USB cable or port (some cables only charge).
 
@@ -202,14 +202,14 @@ To remove them, delete `event_map.lua` from `koreader/settings/` and the patch f
 
 ### Reading fonts
 
-Four free font families, installed by the install script (it asks first; the answer defaults to yes). Each comes in several weights with matching italics, so italic text in a book uses a real italic instead of a slanted copy of the upright.
+Four free font families, installed by the install script (it asks first; the answer defaults to yes). Each comes in several weights with matching italics, so italic text in a book uses a real italic instead of a slanted copy of the upright. Atkinson Hyperlegible Next, Literata and Bitter are *variable* fonts: one file holds every weight in its range, and KOReader uses exactly the weight a book asks for. Variable fonts need KOReader v2026.07.1 or later (the build the install script provides qualifies); older versions show only one weight.
 
 | Font | In KOReader's menu | Style | Weights | Italics |
 |---|---|---|---|---|
-| [Atkinson Hyperlegible Next](https://github.com/googlefonts/atkinson-hyperlegible-next) | Atkinson Hyperlegible Next | Sans serif from the Braille Institute, with letters designed to be hard to confuse (for example I, l and 1) | ExtraLight to ExtraBold (7) | Yes |
+| [Atkinson Hyperlegible Next](https://github.com/googlefonts/atkinson-hyperlegible-next) | Atkinson Hyperlegible Next | Sans serif from the Braille Institute, with letters designed to be hard to confuse (for example I, l and 1) | ExtraLight to ExtraBold (variable, 200–800) | Yes |
 | [Lexend](https://github.com/octaviopardo/lexend/tree/Lexend-a) | **Lexend-aalt** | Sans serif designed to make reading easier; this is its version with a single-storey "a" (written like a handwritten a) | Thin to Black (9) | Yes (added by this project; see below) |
-| [Literata](https://github.com/googlefonts/literata) | Literata | Serif made for reading books on screens (the typeface of Google Play Books) | ExtraLight to Black (8) | Yes |
-| [Bitter](https://github.com/solmatas/BitterPro) | Bitter | Slab serif designed for reading on screens | Thin to Black (9) | Yes |
+| [Literata](https://github.com/googlefonts/literata) | Literata | Serif made for reading books on screens (the typeface of Google Play Books) | ExtraLight to Black (variable, 200–900) | Yes |
+| [Bitter](https://github.com/solmatas/BitterPro) | Bitter | Slab serif designed for reading on screens | Thin to Black (variable, 100–900) | Yes |
 
 **To use one:** open a book, tap the top of the screen to open the menu, choose the second tab (typesetting), then **Font**, and pick the font. To make it the default for new books, hold the font's name and choose to use it as the **default font (★)**. **Font Weight**, in the bottom menu (tap the bottom of the screen, contrast tab), makes text bolder or lighter, using a font's real weights where it has them.
 
@@ -217,9 +217,8 @@ Four free font families, installed by the install script (it asks first; the ans
 
 **What this project changed:**
 
-- **Atkinson Hyperlegible Next** and **Literata**: nothing; the files are the official ones. For Literata, only its standard size is included (not the separate versions tuned for very small or very large text).
+- **Atkinson Hyperlegible Next**, **Literata** and **Bitter**: nothing; the files are the official variable fonts. Literata's also covers its versions tuned for very small or very large text (its "optical size"); KOReader uses the standard one unless a book asks otherwise. Bitter's small-caps family (Bitter SC) is not included.
 - **Lexend**: the official Lexend has no italic. This is Octavio Pardo's alternate-"a" version, whose slanted fonts were not marked as italic, so KOReader showed them as extra upright fonts. This project marks them as Lexend's italics (only their names and style settings change; the letter shapes are untouched). KOReader lists the family as **Lexend-aalt**, the name the fork gives it.
-- **Bitter**: Bitter is now published only as a "variable" font, of which KOReader uses just one weight, Thin. This project cuts it into separate files, one per weight, the way Google Fonts makes its own downloads.
 
 **Your own fonts** can go in `koreader/fonts/` too. The install script never touches other fonts there, and it keeps a folder with one of these four names if this project did not install it. The uninstall script asks before removing the reading fonts and removes only the folders this project installed.
 
@@ -232,7 +231,7 @@ Four free font families, installed by the install script (it asks first; the ans
 - **Supported security:** open networks and WPA/WPA2 Personal. WPA2/WPA3 mixed networks join as WPA2. **Not supported:** WPA3-only, Enterprise (802.1X), WEP, and hidden networks. Use Android Wi-Fi settings for those.
 - **Changing a saved password:** the plugin cannot change the password of a network that is already saved, because the Nook's firmware does not allow it. If a saved network's password stops working, the plugin offers to open Android Wi-Fi settings: forget the network there, then join it again from **Scan for networks…**.
 - **Removing saved networks:** the plugin cannot remove networks that were saved by the Nook or in Android settings. Use Android Wi-Fi settings.
-- **Nook power off after sleeping:** this is a hidden setting of the Nook's firmware. It works on the Nook GlowLight 4 Plus (firmware 8.1.7); other firmware may ignore it or refuse the change.
+- **Nook power off after sleeping:** this is a hidden setting of the Nook's firmware. It has been tested on the Nook GlowLight 4 Plus (firmware 8.1.7) and GlowLight 4 (firmware 8.1.6); other firmware may ignore it or refuse the change.
 - **Bluetooth:** tested with an 8BitDo Micro, which pairs without a PIN. A remote that needs a PIN shows Android's own pairing dialog. If pairing or forgetting does not work for your remote, use **Open Android Bluetooth settings**.
 - **After a KOReader update:** the plugin adjusts KOReader's internal Wi-Fi handling. If **Settings → Network → Wi-Fi connection** opens Android settings again after updating KOReader, the update changed that code. The **Nook Wi-Fi** menu still works; please report the problem.
 
@@ -304,7 +303,7 @@ Networks you joined, and remotes you paired, stay saved in Android. If you set *
 **KOReader Home** is a separate app (`dev.nookkoreader.launcher`), independent of
 the Wi-Fi helper and plugin. When selected as the default Home app, it opens
 KOReader whenever Home is invoked. It requests no permissions and uses no
-network access. It has been tested as the default launcher on a GlowLight 4 Plus:
+network access. It has been tested as the default launcher on a GlowLight 4 Plus (and used on a GlowLight 4):
 Home, the recovery screen, recovering from a KOReader crash, rebooting, and **Restart
 KOReader** with the patch.
 
@@ -396,7 +395,7 @@ make guide     # the user guide as an EPUB in build/ (needs pandoc)
 make dist      # signed release APKs, plugin zip, fonts, guide, scripts, and SHA256SUMS in dist/
 ```
 
-`make dist` needs `helper/keystore.properties`, which points at the release signing key. Neither the key nor that file is committed to the repository. It packs the fonts in `third_party/fonts/` into `fonts.zip` as they are; rebuilding the Lexend italics or the Bitter weights from upstream needs [fontTools](https://github.com/fonttools/fonttools) (`pip install fonttools`) and `scripts/make-lexend-italics.py` or `scripts/make-bitter-static.py` (each script's header says how to run it).
+`make dist` needs `helper/keystore.properties`, which points at the release signing key. Neither the key nor that file is committed to the repository. It packs the fonts in `third_party/fonts/` into `fonts.zip` as they are; rebuilding the Lexend italics from upstream needs [fontTools](https://github.com/fonttools/fonttools) (`pip install fonttools`) and `scripts/make-lexend-italics.py` (its header says how to run it).
 
 ## License
 
@@ -414,5 +413,5 @@ The **reading fonts** are included in `fonts.zip` in the releases and in [third_
 |---|---|---|---|---|
 | Atkinson Hyperlegible Next | 2020-2024 The Atkinson Hyperlegible Next Project Authors | none | [googlefonts/atkinson-hyperlegible-next](https://github.com/googlefonts/atkinson-hyperlegible-next) `7925f50` | none |
 | Lexend (alternate "a") | 2018 The Lexend Project Authors | "RevReading Lexend" (not used) | [octaviopardo/lexend](https://github.com/octaviopardo/lexend/tree/Lexend-a), branch `Lexend-a`, `26500c8` | Uprights none. Italics: the fork's slanted fonts with italic names and style flags, by [scripts/make-lexend-italics.py](scripts/make-lexend-italics.py); outlines unchanged |
-| Literata | 2017 The Literata Project Authors | none | [googlefonts/literata](https://github.com/googlefonts/literata) `0c2761b` | none (default optical size only) |
-| Bitter | 2011 The Bitter Project Authors | "Bitter Pro" (not used; the fonts are named "Bitter", as upstream's are) | [solmatas/BitterPro](https://github.com/solmatas/BitterPro) `de749c6`, version 3.021 | Static fonts cut from the variable fonts, one per named weight, by [scripts/make-bitter-static.py](scripts/make-bitter-static.py) |
+| Literata | 2017 The Literata Project Authors | none | [googlefonts/literata](https://github.com/googlefonts/literata) `0c2761b` | none |
+| Bitter | 2011 The Bitter Project Authors | "Bitter Pro" (not used; the fonts are named "Bitter", as upstream's are) | [solmatas/BitterPro](https://github.com/solmatas/BitterPro) `de749c6`, version 3.021 | none (Bitter SC not included) |

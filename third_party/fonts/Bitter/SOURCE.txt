@@ -1,13 +1,11 @@
 Bitter, installed by KOReader-first Nook.
 
 Source: https://github.com/solmatas/BitterPro
-Commit: de749c69b5ffdb4b109c10d8fc331c3ecc4e39c5 (fonts/variable/Bitter[wght].ttf and Bitter-Italic[wght].ttf, version 3.021)
-License: SIL Open Font License 1.1 (OFL.txt in this folder). Reserved Font Name:
-"Bitter Pro" (not used here; these fonts are named "Bitter", as upstream's are).
-
-These static fonts are modified versions: each is one named instance (Thin to Black,
-upright and italic) of the variable fonts above, made with scripts/make-bitter-static.py
-in the KOReader-first Nook repository, because KOReader uses only a variable font's
-default instance (Thin, for Bitter). fontTools' instancer fixed the weight and updated
-the names and style bits; the PostScript name and unique ID were set from each instance's
-own PostScript name. Outlines are those of the variable fonts at each instance.
+Commit: de749c69b5ffdb4b109c10d8fc331c3ecc4e39c5 (version 3.021)
+Files: fonts/variable/Bitter[wght].ttf and Bitter-Italic[wght].ttf, variable fonts (weight 100 to 900),
+unmodified. The small-caps BitterSC fonts are not included.
+SHA-256:
+  ef2b9a711fb02f1e5823b34da1b7450e0fc76793b7d733a8b41006e24916d4a7  Bitter[wght].ttf
+  5e6e0af503171c9d7b4be7a22c16f474d7a638cf83a80051d825bcc58d664bc3  Bitter-Italic[wght].ttf
+License: SIL Open Font License 1.1 (OFL.txt in this folder). Reserved Font Name: "Bitter Pro"
+(not used here; the fonts are named "Bitter", as upstream's are).

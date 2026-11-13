@@ -1,6 +1,6 @@
 #!/bin/sh
-# Installs KOReader-first Nook on a Nook GlowLight 4 Plus over USB (ADB), from the
-# release files next to this script, and sets the permissions the apps need.
+# Installs KOReader-first Nook on a Nook GlowLight 4 or GlowLight 4 Plus over USB (ADB),
+# from the release files next to this script, and sets the permissions the apps need.
 #
 #   sh install.sh
 #
@@ -19,7 +19,8 @@ set -eu
 HELPER_PKG=dev.nookwifi.helper
 LAUNCHER_PKG=dev.nookkoreader.launcher
 KOREADER_PKG=org.koreader.launcher
-NOOK_MODEL=BNRV1300
+# Tested models: GlowLight 4 Plus (BNRV1300) and GlowLight 4 (BNRV1100).
+NOOK_MODELS="BNRV1300 BNRV1100"
 PLUGINS=/sdcard/koreader/plugins
 PATCHES=/sdcard/koreader/patches
 PATCH=2-koreader-home.lua
@@ -142,11 +143,17 @@ shell() { adb shell "$@" | tr -d '\r'; }
 model=$(shell getprop ro.product.model)
 sdk=$(shell getprop ro.build.version.sdk)
 [ -n "$model" ] && [ -n "$sdk" ] || die "Could not read the device's model over adb. Reconnect the Nook and try again."
-if [ "$model" != "$NOOK_MODEL" ] || [ "$sdk" != 27 ]; then
-    say "This is not a Nook GlowLight 4 Plus (model $model, Android API $sdk). Nothing here is tested on it."
-    $interactive || die "Not a Nook GlowLight 4 Plus; stopping."
+case " $NOOK_MODELS " in *" $model "*) tested_model=true ;; *) tested_model=false ;; esac
+if ! $tested_model || [ "$sdk" != 27 ]; then
+    say "This is not a Nook GlowLight 4 or GlowLight 4 Plus (model $model, Android API $sdk). Nothing here is tested on it."
+    $interactive || die "Not a Nook GlowLight 4 or GlowLight 4 Plus; stopping."
     ask "Continue anyway?" n || die "Stopped; nothing was changed."
 fi
+case "$model" in
+    BNRV1300) nook="Nook GlowLight 4 Plus" ;;
+    BNRV1100) nook="Nook GlowLight 4" ;;
+    *) nook="Nook ($model)" ;;
+esac
 installed() { shell pm list packages "$1" | grep -qx "package:$1"; }
 # Prints the installed plugin's version from its _meta.lua, "unknown" if its folder is there
 # without a readable version, or nothing if it is not installed.
@@ -167,7 +174,7 @@ if installed "$ZENFM_PKG"; then
     zenfm_app_have=$(shell dumpsys package "$ZENFM_PKG" | sed -n 's/^ *versionName=//p' | head -n 1)
     [ -n "$zenfm_app_have" ] || zenfm_app_have=unknown
 fi
-if $koreader; then say "Found a Nook ($model) with KOReader."; else say "Found a Nook ($model); KOReader is not installed."; fi
+if $koreader; then say "Found a $nook with KOReader."; else say "Found a $nook; KOReader is not installed."; fi
 
 step "Choosing what to install"
 say "Always: Nook Wi-Fi Helper and the Nook Wi-Fi KOReader plugin, with their permissions."

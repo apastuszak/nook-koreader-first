@@ -137,7 +137,11 @@ home=$(default_home)
 koreader=false; installed "$KOREADER_PKG" && koreader=true
 koreader_dir=false; exists "$KOREADER_DIR" && koreader_dir=true
 zenfm_app=false; installed "$ZENFM_PKG" && zenfm_app=true
-say "Found a Nook ($model)."
+case "$model" in
+    BNRV1300) say "Found a Nook GlowLight 4 Plus." ;;
+    BNRV1100) say "Found a Nook GlowLight 4." ;;
+    *) say "Found a Nook ($model)." ;;
+esac
 
 if ! $helper && ! $plugin && ! $launcher && ! $home_patch && [ -z "$nook_patches" ] && [ "$event_map" != ours ] \
     && [ -z "$fonts" ] && ! $koreader && ! $koreader_dir; then

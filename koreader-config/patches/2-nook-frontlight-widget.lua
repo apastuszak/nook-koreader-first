@@ -1,6 +1,6 @@
 -- Use KOReader's own FrontLightWidget (the Kindle/Kobo-style sliders)
 -- instead of the native Android light dialog on Android devices.
--- Requires WRITE_SETTINGS to be granted to org.koreader.launcher on the Nook GL4 Plus:
+-- Requires WRITE_SETTINGS to be granted to org.koreader.launcher on the Nook GlowLight 4 and 4 Plus:
 --   adb shell appops set org.koreader.launcher WRITE_SETTINGS allow
 --
 -- SPDX-License-Identifier: AGPL-3.0-or-later

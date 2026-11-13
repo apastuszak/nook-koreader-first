@@ -2,7 +2,7 @@
 
 ## About this guide
 
-This guide shows how to use everything KOReader-first Nook adds to your Nook GlowLight 4 Plus: Wi-Fi and Bluetooth from inside KOReader, the Nook's page buttons and frontlight, the reading fonts, the power-off timer, and the Home button that opens KOReader.
+This guide shows how to use everything KOReader-first Nook adds to your Nook GlowLight 4 or GlowLight 4 Plus: Wi-Fi and Bluetooth from inside KOReader, the Nook's page buttons and frontlight, the reading fonts, the power-off timer, and the Home button that opens KOReader.
 
 It assumes everything is already installed. To install, update or remove KOReader-first Nook, see the README on the project's GitHub page (github.com/apastuszak/nook-koreader-first).
 
@@ -174,7 +174,7 @@ The list is in alphabetical order and has several pages. Lexend-aalt and Literat
 
 **To make a font your default for new books**, hold its name, and choose to use it as the **default font (★)**.
 
-**Bolder or lighter text:** in the bottom menu (tap the bottom of the screen), the contrast tab has **Font Weight**. These fonts come in many weights, so KOReader can use a real lighter or bolder version of the font.
+**Bolder or lighter text:** in the bottom menu (tap the bottom of the screen), the contrast tab has **Font Weight**. These fonts come in many weights, so KOReader can use a real lighter or bolder version of the font. Atkinson Hyperlegible Next, Bitter and Literata are variable fonts, so any weight in between is available too.
 
 Italic text in a book uses the font's real italics, not a slanted copy of the normal letters.
 

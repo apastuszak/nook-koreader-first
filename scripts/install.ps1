@@ -1,5 +1,5 @@
-# Installs KOReader-first Nook on a Nook GlowLight 4 Plus over USB (ADB), from the release
-# files next to this script, and sets the permissions the apps need.
+# Installs KOReader-first Nook on a Nook GlowLight 4 or GlowLight 4 Plus over USB (ADB), from
+# the release files next to this script, and sets the permissions the apps need.
 #
 #   install.cmd      (double-click it, or run it in a Command Prompt)
 #
@@ -24,7 +24,8 @@ $ErrorActionPreference = 'Stop'
 $HelperPkg = 'dev.nookwifi.helper'
 $LauncherPkg = 'dev.nookkoreader.launcher'
 $KoreaderPkg = 'org.koreader.launcher'
-$NookModel = 'BNRV1300'
+# Tested models: GlowLight 4 Plus (BNRV1300) and GlowLight 4 (BNRV1100).
+$NookModels = @('BNRV1300', 'BNRV1100')
 $Plugins = '/sdcard/koreader/plugins'
 $Patches = '/sdcard/koreader/patches'
 $Patch = '2-koreader-home.lua'
@@ -199,9 +200,9 @@ if ($devices[0] -match 'no permissions') {
 $model = Invoke-AdbChecked 'Could not read the device model.' shell getprop ro.product.model
 $sdk = Invoke-AdbChecked 'Could not read the Android version.' shell getprop ro.build.version.sdk
 if (-not $model -or -not $sdk) { Fail "Could not read the device's model over adb. Reconnect the Nook and try again." }
-if ($model -ne $NookModel -or $sdk -ne '27') {
-    Say "This is not a Nook GlowLight 4 Plus (model $model, Android API $sdk). Nothing here is tested on it."
-    if (-not $interactive) { Fail 'Not a Nook GlowLight 4 Plus; stopping.' }
+if ($model -notin $NookModels -or $sdk -ne '27') {
+    Say "This is not a Nook GlowLight 4 or GlowLight 4 Plus (model $model, Android API $sdk). Nothing here is tested on it."
+    if (-not $interactive) { Fail 'Not a Nook GlowLight 4 or GlowLight 4 Plus; stopping.' }
     if (-not (Ask 'Continue anyway?' 'n')) { Fail 'Stopped; nothing was changed.' }
 }
 function Test-Installed([string]$Package) {
@@ -226,7 +227,12 @@ if (Test-Installed $ZenfmPkg) {
     $dump = Invoke-Adb shell dumpsys package $ZenfmPkg
     if ($dump -match '(?m)^\s*versionName=(\S+)') { $zenfmAppHave = $Matches[1] } else { $zenfmAppHave = 'unknown' }
 }
-if ($koreader) { Say "Found a Nook ($model) with KOReader." } else { Say "Found a Nook ($model); KOReader is not installed." }
+$nook = switch ($model) {
+    'BNRV1300' { 'Nook GlowLight 4 Plus' }
+    'BNRV1100' { 'Nook GlowLight 4' }
+    default { "Nook ($model)" }
+}
+if ($koreader) { Say "Found a $nook with KOReader." } else { Say "Found a $nook; KOReader is not installed." }
 
 Step 'Choosing what to install'
 Say 'Always: Nook Wi-Fi Helper and the Nook Wi-Fi KOReader plugin, with their permissions.'

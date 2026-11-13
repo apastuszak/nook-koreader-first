@@ -1,6 +1,10 @@
 Literata, installed by KOReader-first Nook.
 
 Source: https://github.com/googlefonts/literata
-Commit: 0c2761b727a1b3a7cffd313c37f0f5163dfc7a63 (fonts/ttf, the default optical size Literata-<Style>.ttf, static TTFs, unmodified;
-the Literata7pt, 36pt and 72pt optical sizes are not included)
+Commit: 0c2761b727a1b3a7cffd313c37f0f5163dfc7a63
+Files: fonts/variable/Literata[opsz,wght].ttf and Literata-Italic[opsz,wght].ttf, variable fonts
+(weight 200 to 900, optical size 7 to 72), unmodified.
+SHA-256:
+  b41138c9373112f32abb589cc22e8674b06ed4048b0c513be922bdd26f274440  Literata[opsz,wght].ttf
+  d483dfaeba9cbf4ce71d32a52ee65df82f7e35b15fff8d1011cdb242d1fcd465  Literata-Italic[opsz,wght].ttf
 License: SIL Open Font License 1.1 (OFL.txt in this folder)
